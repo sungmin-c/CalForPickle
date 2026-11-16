@@ -22,6 +22,7 @@ export const Gear = () => (
     <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" />
   </Svg>
 );
+export const Pin = () => <Svg><path d="M5.5 2h5M6.5 2v4L4 9h8L9.5 6V2M8 9v5" /></Svg>;
 export const Check = () => <Svg><path d="m3 8.5 3 3 7-7" /></Svg>;
 export const Clock = () => <Svg><circle cx="8" cy="8" r="5.5" /><path d="M8 5v3l2 1.5" /></Svg>;
 export const Offline = () => <Svg><circle cx="8" cy="8" r="5.5" /><path d="m4 12 8-8" /></Svg>;

@@ -13,7 +13,6 @@ export function SettingsDialog(p: {
   onConnect: (s: Settings, token: string) => Promise<void>;
   onDisconnect: () => Promise<void>;
   onClearLocal: () => Promise<void>;
-  onAlwaysBottom: (v: boolean) => void;
   onAutostart: (v: boolean) => void;
   /** `save` is false while dragging (preview only) and true when the value is committed. */
   onOpacity: (v: number, save: boolean) => void;
@@ -101,10 +100,6 @@ export function SettingsDialog(p: {
 
       <section aria-labelledby="set-win">
         <h3 id="set-win">창</h3>
-        <label class="check">
-          <input type="checkbox" checked={!!p.settings.alwaysBottom} onChange={(e) => p.onAlwaysBottom(e.currentTarget.checked)} />
-          항상 아래에 두기 (다른 창 뒤에 깔리고, 누르면 앞으로 나옵니다)
-        </label>
         <label class="check">
           <input type="checkbox" checked={p.settings.autostart} onChange={(e) => p.onAutostart(e.currentTarget.checked)} />
           Windows 시작 시 실행

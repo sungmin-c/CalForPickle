@@ -10,6 +10,7 @@ export interface Rect {
 export interface Settings {
   owner?: string;
   repo?: string;
+  /** Pinned to the desktop (header pin button): always under other windows, not movable or resizable. */
   alwaysBottom: boolean;
   autostart: boolean;
   /** Window background opacity in percent, MIN_OPACITY..100. */

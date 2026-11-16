@@ -9,7 +9,7 @@ import { createSync, tauriLocal, tauriRemote, type Remote, type SyncState } from
 import { Calendar, calendarTitle, shift, weekShortTitle, type View } from "./Calendar";
 import { today } from "./dates";
 import { EventDialog, newEvent, TaskDialog } from "./Dialogs";
-import { Check, Clock, Close, Merge, Next, Offline, Prev, Gear, Menu, Warn } from "./icons";
+import { Check, Clock, Close, Merge, Next, Offline, Prev, Gear, Menu, Pin, Warn } from "./icons";
 import { fitsOnScreen, normalizeSettings, type Settings } from "./prefs";
 import { SettingsDialog } from "./Settings";
 import { TaskPanel } from "./Tasks";
@@ -46,7 +46,19 @@ async function restoreWindow(s: Settings) {
       await w.setSize(new PhysicalSize(s.window.width, s.window.height));
     }
   }
-  if (s.alwaysBottom) await w.setAlwaysOnBottom(true);
+  if (s.alwaysBottom) await applyPin(true);
+}
+
+/** Pinned: under every window, staying there even when clicked (the user's choice, session 19), and no moving or resizing.
+ *  Unpinned: an ordinary window. Clearing always-bottom sends HWND_NOTOPMOST, a no-op for a window that isn't topmost,
+ *  so the top on/off pair brings the window you just clicked out from under the others. */
+async function applyPin(on: boolean) {
+  const w = getCurrentWindow();
+  await w.setResizable(!on);
+  await w.setAlwaysOnBottom(on);
+  if (on) return;
+  await w.setAlwaysOnTop(true);
+  await w.setAlwaysOnTop(false);
 }
 
 async function applyAutostart(on: boolean) {
@@ -130,22 +142,11 @@ export function App() {
         await saveSettings({ window: g });
       }, 500);
     };
-    // tao forces HWND_BOTTOM on every z-order change while always-bottom is on, so a clicked or Alt+Tabbed window
-    // would stay hidden behind the app you just left. While focused it sits in front; it goes back down on blur.
-    // Clearing the flag sends HWND_NOTOPMOST, a no-op for a window that isn't topmost: the top on/off pair raises it.
-    const unFocus = win.onFocusChanged(async ({ payload: focused }) => {
-      if (!prefs.current.alwaysBottom) return;
-      if (!focused) return win.setAlwaysOnBottom(true);
-      await win.setAlwaysOnBottom(false);
-      await win.setAlwaysOnTop(true);
-      await win.setAlwaysOnTop(false);
-    });
     const unMoved = win.onMoved(onGeometry);
     const unResized = win.onResized(onGeometry);
     const clock = setInterval(bump, 60_000); // keeps "today" right when the app stays open past midnight
     return () => {
       void unlisten.then((f) => f());
-      void unFocus.then((f) => f());
       void unMoved.then((f) => f());
       void unResized.then((f) => f());
       clearTimeout(timer);
@@ -169,6 +170,8 @@ export function App() {
   const st = STATE[status.state];
   const title = calendarTitle(view, sel);
   const now = today();
+  const pinned = settings.alwaysBottom;
+  const drag = pinned ? "false" : "true"; // pinned: the header no longer moves the window
 
   const saveEvent = async (e: Event) => {
     setEditEvent(null);
@@ -187,20 +190,20 @@ export function App() {
   };
 
   return (
-    <div class={settings.opacity < 100 ? "app clear" : "app"} style={`--opacity: ${settings.opacity / 100}`}>
+    <div class={`app${settings.opacity < 100 ? " clear" : ""}${pinned ? " pinned" : ""}`} style={`--opacity: ${settings.opacity / 100}`}>
       {/* No title bar: the header's empty parts move the window (Tauri drag region applies to the marked element itself, not its children). */}
-      <header class="bar" data-tauri-drag-region>
-        <div class="nav" data-tauri-drag-region>
+      <header class="bar" data-tauri-drag-region={drag}>
+        <div class="nav" data-tauri-drag-region={drag}>
           <button type="button" class="icon" aria-label={view === "month" ? "이전 달" : "이전 주"}
             onClick={() => setSel(shift(view, sel, -1))}><Prev /></button>
           <button type="button" onClick={() => setSel(now)}>오늘</button>
           <button type="button" class="icon" aria-label={view === "month" ? "다음 달" : "다음 주"}
             onClick={() => setSel(shift(view, sel, 1))}><Next /></button>
           {/* Spans let a narrow header drop the year or switch to the short week title; each needs its own drag mark. */}
-          <h1 data-tauri-drag-region>
-            <span class="year" data-tauri-drag-region>{title.slice(0, 6)}</span>
-            <span class="full" data-tauri-drag-region>{title.slice(6)}</span>
-            {view === "week" && <span class="short" data-tauri-drag-region>{weekShortTitle(sel)}</span>}
+          <h1 data-tauri-drag-region={drag}>
+            <span class="year" data-tauri-drag-region={drag}>{title.slice(0, 6)}</span>
+            <span class="full" data-tauri-drag-region={drag}>{title.slice(6)}</span>
+            {view === "week" && <span class="short" data-tauri-drag-region={drag}>{weekShortTitle(sel)}</span>}
           </h1>
         </div>
         <div class="seg" role="group" aria-label="보기">
@@ -208,14 +211,20 @@ export function App() {
           <button type="button" aria-pressed={view === "week"} onClick={() => setView("week")}>주</button>
         </div>
         <button type="button" onClick={() => setEditEvent({ event: newEvent(sel), isNew: true })}>루틴</button>
-        <span class="spacer" data-tauri-drag-region />
-        <div class="sync" data-tauri-drag-region>
+        <span class="spacer" data-tauri-drag-region={drag} />
+        <div class="sync" data-tauri-drag-region={drag}>
           <span class={`status ${live ? status.state : "local"}`} role="status" title={live ? st.hint : undefined}>
             <span class="sr-only">동기화 상태: </span>
             {live ? <><st.Icon /> <span class="label">{st.label}</span></> : <><Offline /> <span class="label">연결 안 됨</span></>}
           </span>
           {live && <button type="button" class="sync-now" onClick={syncNow} disabled={syncing}>{syncing ? "동기화 중…" : "지금 동기화"}</button>}
         </div>
+        <button type="button" class="icon pin" aria-label="바탕화면에 고정" aria-pressed={pinned}
+          title={pinned ? "고정됨: 다른 창 뒤에 머물고, 옮기거나 크기를 바꿀 수 없습니다. 누르면 풀림" : "바탕화면에 고정 (다른 창 뒤에 머물고, 옮기기·크기 조절을 막습니다)"}
+          onClick={async () => {
+            await applyPin(!pinned);
+            await saveSettings({ alwaysBottom: !pinned });
+          }}><Pin /></button>
         <button type="button" class="icon" aria-label="설정" onClick={() => setShowSettings(true)}><Gear /></button>
         <button type="button" class="icon" aria-label="닫기 (트레이로 숨김)" title="닫기 (트레이로 숨김)"
           onClick={() => void getCurrentWindow().hide()}><Close /></button>
@@ -263,10 +272,6 @@ export function App() {
           }}
           onDisconnect={() => reconnect(settings, () => invoke("secret_delete"))}
           onClearLocal={() => reconnect(settings, () => invoke("local_clear"))}
-          onAlwaysBottom={async (v) => {
-            if (!v) await getCurrentWindow().setAlwaysOnBottom(false); // turning it on waits for blur: the settings window is in use
-            await saveSettings({ alwaysBottom: v });
-          }}
           onAutostart={async (v) => {
             await applyAutostart(v);
             await saveSettings({ autostart: v });
