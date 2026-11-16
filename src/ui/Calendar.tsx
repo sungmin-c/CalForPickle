@@ -17,6 +17,13 @@ export function calendarTitle(view: View, sel: string): string {
   return `${a.slice(0, 4)}년 ${md(a)} ~ ${a.slice(5, 7) === b.slice(5, 7) ? `${Number(b.slice(8))}일` : md(b)}`;
 }
 
+/** Week title for a narrow header: "11.15 – 21", or "11.30 – 12.6" when the week crosses a month. */
+export function weekShortTitle(sel: string): string {
+  const [a, b] = [weekDays(sel)[0], weekDays(sel)[6]];
+  const dot = (d: string) => `${Number(d.slice(5, 7))}.${Number(d.slice(8))}`;
+  return `${dot(a)} – ${a.slice(5, 7) === b.slice(5, 7) ? Number(b.slice(8)) : dot(b)}`;
+}
+
 /** Step for the prev/next buttons and PageUp/PageDown. */
 export const shift = (view: View, d: string, n: number) => (view === "month" ? addMonths(d, n) : addDays(d, 7 * n));
 

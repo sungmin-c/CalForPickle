@@ -1,3 +1,4 @@
+import { weekShortTitle } from "../src/ui/Calendar";
 import { describe, expect, it } from "vitest";
 import { addMonths, fromForm, koDate, monthDays, onDay, toForm, weekDays } from "../src/ui/dates";
 import { ev } from "./fixtures";
@@ -64,5 +65,12 @@ describe("koDate: Korean reading of a date input (session 12)", () => {
   it("is empty for an empty or half-typed input", () => {
     expect(koDate("")).toBe("");
     expect(koDate("2026-13-01")).toBe("");
+  });
+});
+
+describe("weekShortTitle (narrow header)", () => {
+  it("drops the month on the end date only when the week stays in one month", () => {
+    expect(weekShortTitle("2026-11-16")).toBe("11.15 – 21");
+    expect(weekShortTitle("2026-12-01")).toBe("11.29 – 12.5");
   });
 });

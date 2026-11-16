@@ -6,7 +6,7 @@ import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Event, Task } from "../model";
 import { createSync, tauriLocal, tauriRemote, type Remote, type SyncState } from "../sync";
-import { Calendar, calendarTitle, shift, type View } from "./Calendar";
+import { Calendar, calendarTitle, shift, weekShortTitle, type View } from "./Calendar";
 import { today } from "./dates";
 import { EventDialog, newEvent, TaskDialog } from "./Dialogs";
 import { Check, Clock, Close, Merge, Next, Offline, Prev, Gear, Menu, Warn } from "./icons";
@@ -196,8 +196,12 @@ export function App() {
           <button type="button" onClick={() => setSel(now)}>오늘</button>
           <button type="button" class="icon" aria-label={view === "month" ? "다음 달" : "다음 주"}
             onClick={() => setSel(shift(view, sel, 1))}><Next /></button>
-          {/* "2026년 " is its own span so a narrow header can drop it; the span needs its own drag mark. */}
-          <h1 data-tauri-drag-region><span class="year" data-tauri-drag-region>{title.slice(0, 6)}</span>{title.slice(6)}</h1>
+          {/* Spans let a narrow header drop the year or switch to the short week title; each needs its own drag mark. */}
+          <h1 data-tauri-drag-region>
+            <span class="year" data-tauri-drag-region>{title.slice(0, 6)}</span>
+            <span class="full" data-tauri-drag-region>{title.slice(6)}</span>
+            {view === "week" && <span class="short" data-tauri-drag-region>{weekShortTitle(sel)}</span>}
+          </h1>
         </div>
         <div class="seg" role="group" aria-label="보기">
           <button type="button" aria-pressed={view === "month"} onClick={() => setView("month")}>월</button>

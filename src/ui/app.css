@@ -72,7 +72,7 @@ label.check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 
 /* Header */
 /* Always one line, down to the 480px minimum window. Narrowing gives up, in order: status words (icon stays),
-   then the manual sync button and the year; the title is the only part that shrinks, with an ellipsis as the last resort. */
+   then the manual sync button and the year, then the long week title (≤560px); the title alone may shrink, with an ellipsis as the last resort. */
 .bar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .bar > * { flex-shrink: 0; }
 .bar > .nav { flex-shrink: 1; min-width: 0; }
@@ -91,6 +91,12 @@ label.check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
   .bar .sync-now, .bar .year { display: none; }
   .nav > button:not(.icon), .seg button, .bar > button:not(.icon) { padding: 4px 8px; }
   .bar h1 { margin-left: 4px; }
+}
+.bar .short { display: none; }
+@media (max-width: 560px) {
+  .bar h1:has(.short) .full { display: none; }
+  .bar .short { display: inline; }
+  .bar button.icon { width: 28px; } /* "11.29 – 12.5" needs these 24px at the 480px minimum */
 }
 .spacer { flex: 1; }
 .seg { display: inline-flex; }
