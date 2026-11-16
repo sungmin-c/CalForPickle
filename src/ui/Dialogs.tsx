@@ -65,7 +65,7 @@ export function EventDialog(p: { event: Event; isNew: boolean; day?: string; onS
   };
 
   return (
-    <Modal title={p.isNew ? "새 일정" : "일정 편집"} onClose={p.onClose}>
+    <Modal title={p.isNew ? "새 루틴" : "루틴 편집"} onClose={p.onClose}>
       <form onSubmit={submit}>
         <Field id="ev-title" label="제목">
           <input id="ev-title" value={f.title} onInput={set("title")} autoFocus />
