@@ -9,13 +9,16 @@ use std::sync::LazyLock;
 
 static CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
 
-fn url(owner: &str, repo: &str, path: &str) -> Result<String, String> {
+fn repo_url(owner: &str, repo: &str) -> Result<String, String> {
     let name = |s: &str| check_path(s).ok().filter(|s| !s.contains('/')).map(str::to_owned);
-    let (o, r) = (name(owner), name(repo));
-    match (o, r) {
-        (Some(o), Some(r)) => Ok(format!("https://api.github.com/repos/{o}/{r}/contents/{}", check_path(path)?)),
+    match (name(owner), name(repo)) {
+        (Some(o), Some(r)) => Ok(format!("https://api.github.com/repos/{o}/{r}")),
         _ => Err("invalid owner/repo".into()),
     }
+}
+
+fn url(owner: &str, repo: &str, path: &str) -> Result<String, String> {
+    Ok(format!("{}/contents/{}", repo_url(owner, repo)?, check_path(path)?))
 }
 
 async fn send(req: RequestBuilder) -> Result<Response, String> {
@@ -48,6 +51,18 @@ struct FileIn {
 pub struct FileOut {
     text: String,
     sha: String,
+}
+
+#[derive(Deserialize)]
+struct RepoIn {
+    private: bool,
+}
+
+/// The data repo holds the whole calendar, so connecting checks it is private (needs only Metadata read).
+#[tauri::command]
+pub async fn gh_private(owner: String, repo: String) -> Result<bool, String> {
+    let r: RepoIn = json_or_err(send(CLIENT.get(repo_url(&owner, &repo)?)).await?).await?;
+    Ok(r.private)
 }
 
 /// None on 404 (file or repo content absent).
@@ -147,5 +162,15 @@ mod tests {
         assert!(url("me/x", "r", "a").is_err());
         assert!(url("me", "..", "a").is_err());
         assert!(url("me", "r", "../a").is_err());
+        assert_eq!(url("me", "cal", "a.json").unwrap(), "https://api.github.com/repos/me/cal/contents/a.json");
+    }
+
+    /// Live check with the token in Credential Manager: `cargo test --lib -- --ignored private_flag`.
+    #[test]
+    #[ignore]
+    fn private_flag_live() {
+        let get = |r: &str| tauri::async_runtime::block_on(gh_private("sungmin-c".into(), r.into()));
+        assert_eq!(get("CalForPickle"), Ok(false));
+        assert_eq!(get("calforpickle-sandbox"), Ok(true));
     }
 }

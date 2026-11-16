@@ -23,7 +23,8 @@
         "transparent": true,
         "decorations": false,
         "shadow": false,
-        "maximizable": false
+        "maximizable": false,
+        "skipTaskbar": true
       }
     ],
     "security": {

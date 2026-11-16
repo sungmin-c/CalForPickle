@@ -16,11 +16,11 @@ describe("normalizeSettings", () => {
 
   it("keeps valid values and drops unknown keys", () => {
     const s = normalizeSettings(JSON.stringify({
-      owner: "me", repo: "cal", alwaysBottom: true, autostart: true, opacity: 85,
+      owner: "me", repo: "cal", alwaysBottom: true, autostart: true, opacity: 85, memoOpen: true,
       window: { x: -10, y: 20, width: 900, height: 600 }, junk: 1,
     }));
     expect(s).toEqual({
-      owner: "me", repo: "cal", alwaysBottom: true, autostart: true, opacity: 85,
+      owner: "me", repo: "cal", alwaysBottom: true, autostart: true, opacity: 85, memoOpen: true,
       window: { x: -10, y: 20, width: 900, height: 600 },
     });
   });
@@ -33,6 +33,7 @@ describe("normalizeSettings", () => {
     expect(normalizeSettings('{"opacity": "80"}').opacity).toBe(100);
     expect(normalizeSettings('{"autostart": "no", "alwaysBottom": 1}')).toMatchObject({ autostart: false, alwaysBottom: false });
     expect(normalizeSettings('{"owner": 5}').owner).toBeUndefined();
+    expect(normalizeSettings('{"memoOpen": "yes"}').memoOpen).toBeUndefined();
   });
 
   it("drops a malformed window rect", () => {
@@ -63,10 +64,10 @@ describe("fitsOnScreen", () => {
   });
 });
 
-// Translucent mode (session 11): the background can go down to MIN_OPACITY, so text carries its own backdrop.
-// .clear draws a hard (0 blur) --bg outline round every glyph, and round button/input borders. Under that outline the
-// wallpaper no longer matters: text needs 4.5:1 against --bg, borders 3:1. A blurred shadow would be partly see-through.
-describe("translucent mode keeps text readable over any wallpaper", () => {
+// Translucent mode: the background can go down to MIN_OPACITY. The --bg outline round glyphs and controls
+// (session 11) was dropped in session 16, so over a wallpaper contrast is up to the slider; the colours that mode
+// switches to still have to work on the opaque --bg.
+describe("translucent mode colours", () => {
   const [light, dark] = css.split("@media (prefers-color-scheme: dark)").map(tokens);
   const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
   const lum = (rgb: number[]) => 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]);
@@ -75,18 +76,6 @@ describe("translucent mode keeps text readable over any wallpaper", () => {
     const [x, y] = [lum(rgb(a)), lum(rgb(b))];
     return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
   };
-  const rule = (selector: string) => {
-    const i = css.indexOf(selector);
-    expect(i, selector).toBeGreaterThanOrEqual(0);
-    return css.slice(i, css.indexOf("}", i));
-  };
-  /** Every layer of a shadow list is `<x> <y> 0 var(--bg)`; returns the offsets. */
-  const hardBgLayers = (decl: string) =>
-    decl.split(",").map((layer) => {
-      const m = layer.trim().match(/^(-?\d+px|0) (-?\d+px|0) 0 var\(--bg\)$/);
-      expect(m, layer).not.toBeNull();
-      return [parseInt(m![1]), parseInt(m![2])];
-    });
 
   it("lets the background go fully transparent", () => {
     expect(MIN_OPACITY).toBe(0);
@@ -100,22 +89,14 @@ describe("translucent mode keeps text readable over any wallpaper", () => {
     }
   });
 
+  it("today's accent day number reaches 4.5:1 on --bg, in both themes", () => {
+    for (const t of [light, dark]) expect(ratio(t["--accent"], t["--bg"])).toBeGreaterThanOrEqual(4.5);
+  });
+
   it("weekend colours reach 4.5:1 on --bg and on --tone (keyboard-selected day), in both themes", () => {
     for (const t of [light, dark])
       for (const c of ["--sun", "--sat"])
         for (const bg of ["--bg", "--tone"]) expect(ratio(t[c], t[bg]), `${c} on ${bg}`).toBeGreaterThanOrEqual(4.5);
-  });
-
-  it("outlines text on all 8 sides with a hard --bg shadow", () => {
-    const decl = rule(".clear > :not(dialog)").match(/text-shadow:\s*([^;]+);/)![1];
-    const sides = new Set(hardBgLayers(decl).map(([x, y]) => `${Math.sign(x)},${Math.sign(y)}`));
-    expect(sides.size).toBe(8);
-    expect(sides.has("0,0")).toBe(false);
-  });
-
-  it("rings button and input borders with --bg outside the border", () => {
-    const decl = rule(".clear :is(button, input, select, textarea)").match(/box-shadow:\s*([^;]+);/)![1];
-    expect(decl.trim()).toBe("0 0 0 2px var(--bg)");
   });
 });
 

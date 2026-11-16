@@ -9,7 +9,7 @@ import { createSync, tauriLocal, tauriRemote, type Remote, type SyncState } from
 import { Calendar, calendarTitle, shift, type View } from "./Calendar";
 import { today } from "./dates";
 import { EventDialog, newEvent, TaskDialog } from "./Dialogs";
-import { Check, Clock, Close, Merge, Next, Offline, Prev, Gear, Warn } from "./icons";
+import { Check, Clock, Close, Merge, Next, Offline, Prev, Gear, Menu, Warn } from "./icons";
 import { fitsOnScreen, normalizeSettings, type Settings } from "./prefs";
 import { SettingsDialog } from "./Settings";
 import { TaskPanel } from "./Tasks";
@@ -130,11 +130,22 @@ export function App() {
         await saveSettings({ window: g });
       }, 500);
     };
+    // tao forces HWND_BOTTOM on every z-order change while always-bottom is on, so a clicked or Alt+Tabbed window
+    // would stay hidden behind the app you just left. While focused it sits in front; it goes back down on blur.
+    // Clearing the flag sends HWND_NOTOPMOST, a no-op for a window that isn't topmost: the top on/off pair raises it.
+    const unFocus = win.onFocusChanged(async ({ payload: focused }) => {
+      if (!prefs.current.alwaysBottom) return;
+      if (!focused) return win.setAlwaysOnBottom(true);
+      await win.setAlwaysOnBottom(false);
+      await win.setAlwaysOnTop(true);
+      await win.setAlwaysOnTop(false);
+    });
     const unMoved = win.onMoved(onGeometry);
     const unResized = win.onResized(onGeometry);
     const clock = setInterval(bump, 60_000); // keeps "today" right when the app stays open past midnight
     return () => {
       void unlisten.then((f) => f());
+      void unFocus.then((f) => f());
       void unMoved.then((f) => f());
       void unResized.then((f) => f());
       clearTimeout(timer);
@@ -202,11 +213,22 @@ export function App() {
         <button type="button" class="icon" aria-label="설정" onClick={() => setShowSettings(true)}><Gear /></button>
         <button type="button" class="icon" aria-label="닫기 (트레이로 숨김)" title="닫기 (트레이로 숨김)"
           onClick={() => void getCurrentWindow().hide()}><Close /></button>
+        <button type="button" class="icon" aria-label="메모 패널" aria-pressed={!!settings.memoOpen} title="메모 패널"
+          onClick={() => void saveSettings({ memoOpen: !settings.memoOpen })}><Menu /></button>
       </header>
 
+      {!settings.introSeen && (
+        <div class="notices intro" role="region" aria-label="처음 안내">
+          <p>Windows를 켤 때 자동으로 실행되게 하려면 설정에서 "Windows 시작 시 실행"을 켜세요. 지금은 꺼져 있습니다.</p>
+          <p class="actions">
+            <button type="button" onClick={() => { void saveSettings({ introSeen: true }); setShowSettings(true); }}>설정 열기</button>
+            <button type="button" onClick={() => void saveSettings({ introSeen: true })}>확인</button>
+          </p>
+        </div>
+      )}
       <Notices live={live} state={status.state} held={status.held} clockSkew={status.clockSkew} error={status.error} />
 
-      <main class="body">
+      <main class={settings.memoOpen ? "body" : "body no-memo"}>
         <Calendar view={view} sel={sel} today={now} events={sync.events().filter((e) => !e.deleted)} tasks={sync.tasks()}
           onSelect={setSel}
           onSaveTasks={(ts) => void Promise.all(ts.map((t) => sync.saveTask(t))).then(bump)}
@@ -216,7 +238,11 @@ export function App() {
       </main>
 
       {editEvent && (
-        <EventDialog event={editEvent.event} isNew={editEvent.isNew} day={editEvent.day} onSave={saveEvent} onClose={() => setEditEvent(null)} />
+        // key: picking a routine from the new-routine list swaps in a fresh dialog with that routine's form.
+        <EventDialog key={editEvent.event.id} event={editEvent.event} isNew={editEvent.isNew} day={editEvent.day}
+          routines={sync.events().filter((e) => e.recurrence && !e.deleted).sort((a, b) => a.title.localeCompare(b.title, "ko"))}
+          onPick={(e) => setEditEvent({ event: e, isNew: false })}
+          onSave={saveEvent} onClose={() => setEditEvent(null)} />
       )}
       {editTask && <TaskDialog task={editTask} onSave={saveTask} onClose={() => setEditTask(null)} />}
       {showSettings && (
@@ -224,13 +250,15 @@ export function App() {
           unsynced={status.state === "pending" || status.state === "offline"} unpushed={status.unpushed}
           onConnect={async (s, token) => {
             if (token) await invoke("secret_set", { token });
+            if (!(await invoke<boolean>("gh_private", { owner: s.owner, repo: s.repo })))
+              throw "공개(public) 저장소에는 연결할 수 없습니다. 누구나 일정을 볼 수 있게 됩니다. private 저장소를 만들어 쓰세요.";
             await saveSettings(s);
             await reconnect(s);
           }}
           onDisconnect={() => reconnect(settings, () => invoke("secret_delete"))}
           onClearLocal={() => reconnect(settings, () => invoke("local_clear"))}
           onAlwaysBottom={async (v) => {
-            await getCurrentWindow().setAlwaysOnBottom(v);
+            if (!v) await getCurrentWindow().setAlwaysOnBottom(false); // turning it on waits for blur: the settings window is in use
             await saveSettings({ alwaysBottom: v });
           }}
           onAutostart={async (v) => {

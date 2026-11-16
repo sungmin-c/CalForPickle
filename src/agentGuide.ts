@@ -1,5 +1,5 @@
 export const GUIDE_PATH = "AGENT_GUIDE.md";
-const MARKER = "<!-- agent-guide v4 -->";
+const MARKER = "<!-- agent-guide v5 -->";
 
 /** Rewrite the repo guide when it is missing or carries another version marker (DESIGN §4.3). */
 export function needsGuide(text: string | undefined): boolean {
@@ -85,14 +85,15 @@ upcoming.json             앱이 재생성하는 요약 (편집 금지)
 
 1. \`git pull --rebase\`
 2. 대상 파일만 수정하고, 바꾼 항목의 \`updatedAt\` 갱신
-3. commit → push
-4. push가 거부되면 \`git pull --rebase\` 후 다시 push
+3. 바꾼 파일이 올바른 JSON인지 확인한다(예: \`python -m json.tool 파일 > /dev/null\`). 깨진 파일은 앱이 병합을 보류한다
+4. commit → push
+5. push가 거부되면 \`git pull --rebase\` 후 다시 push
 
 일정의 \`start\`가 다른 달로 바뀌면 같은 commit에서 옛 달 파일에서 빼고 새 달 파일에 넣는다.
 
 ## 5. upcoming.json
 
-편집하지 않는다. 오늘부터 14일 일정과 열린 태스크 요약이며, 반복 일정은 회차마다 한 줄씩(\`id\`는 원본 일정과 같음) 펼쳐 있다. 회차를 고치려면 원본 일정을 고친다. 요약은 앱이 매일 07:00와 앱이 push할 때 다시 만든다. events/tasks를 직접 바꿨다면 upcoming.json 대신 원본 파일을 읽는다.
+편집하지 않는다. 오늘부터 14일 일정과 열린 태스크 요약이며, 반복 일정은 회차마다 한 줄씩(\`id\`는 원본 일정과 같음) 펼쳐 있다. 회차를 고치려면 원본 일정을 고친다. 요약은 앱이 매일 07:00와 앱이 push할 때 다시 만든다. events/tasks를 직접 바꿨거나 \`generatedAt\`의 날짜가 오늘(서울)이 아니면 upcoming.json 대신 원본 파일을 읽는다(앱이 꺼져 있으면 요약이 갱신되지 않는다).
 
 ## 6. 형식
 

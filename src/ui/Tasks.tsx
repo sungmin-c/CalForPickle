@@ -48,9 +48,10 @@ export function TaskPanel(p: { tasks: Task[]; today: string; onSave: (t: Task) =
   };
 
   return (
-    <aside class="tasks" aria-label="할 일">
+    <aside class="tasks" aria-label="메모">
+      <div class="tasks-in">
       <form onSubmit={add} class="field">
-        <label for="new-task">새 할 일</label>
+        <label for="new-task">새 메모</label>
         <input id="new-task" value={title} onInput={(e) => setTitle(e.currentTarget.value)} placeholder="적고 Enter" />
       </form>
       {open.length ? <ul>{open.map(row)}</ul> : <p class="empty">남은 할 일이 없습니다.</p>}
@@ -60,6 +61,7 @@ export function TaskPanel(p: { tasks: Task[]; today: string; onSave: (t: Task) =
           <ul>{done.map(row)}</ul>
         </details>
       )}
+      </div>
     </aside>
   );
 }

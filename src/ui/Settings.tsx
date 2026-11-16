@@ -103,7 +103,7 @@ export function SettingsDialog(p: {
         <h3 id="set-win">창</h3>
         <label class="check">
           <input type="checkbox" checked={!!p.settings.alwaysBottom} onChange={(e) => p.onAlwaysBottom(e.currentTarget.checked)} />
-          항상 아래에 두기 (다른 창 뒤에 깔립니다)
+          항상 아래에 두기 (다른 창 뒤에 깔리고, 누르면 앞으로 나옵니다)
         </label>
         <label class="check">
           <input type="checkbox" checked={p.settings.autostart} onChange={(e) => p.onAutostart(e.currentTarget.checked)} />
@@ -117,7 +117,7 @@ export function SettingsDialog(p: {
             onInput={(e) => p.onOpacity(Number(e.currentTarget.value), false)}
             onChange={(e) => p.onOpacity(Number(e.currentTarget.value), true)} />
           <p id="set-opacity-hint" class="note">
-            100%보다 낮으면 어떤 바탕화면에서도 읽히도록 글자와 버튼에 배경색 테두리를 두르고, 흐린 글자와 경고색을 진하게 바꿉니다.
+            100%보다 낮으면 흐린 글자와 경고색을 진하게 바꿉니다. 바탕화면 때문에 글자가 잘 안 보이면 값을 올리세요.
           </p>
         </div>
         <p class="note">창을 닫으면 트레이로 내려갑니다. 끝내려면 트레이 아이콘 메뉴에서 종료를 누르세요.</p>

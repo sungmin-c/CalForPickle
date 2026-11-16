@@ -75,6 +75,7 @@ pub fn run() {
             secret::secret_exists,
             secret::secret_delete,
             github::gh_get,
+            github::gh_private,
             github::gh_list,
             github::gh_put,
             files::local_read,

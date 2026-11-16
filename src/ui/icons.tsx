@@ -13,6 +13,7 @@ export const Dot = ({ color }: { color?: string }) => (color ? <i class="dot" ar
 
 export const Prev = () => <Svg><path d="M10 3 5 8l5 5" /></Svg>;
 export const Next = () => <Svg><path d="m6 3 5 5-5 5" /></Svg>;
+export const Menu = () => <Svg><path d="M2.5 4h11M2.5 8h11M2.5 12h11" /></Svg>;
 export const Close = () => <Svg><path d="m4 4 8 8M12 4l-8 8" /></Svg>;
 export const Gear = () => (
   <Svg>

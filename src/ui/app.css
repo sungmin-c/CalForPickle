@@ -1,5 +1,5 @@
 /* Tokens from ~/.claude/DESIGN.md (no project DESIGN.md). System fonts only (DESIGN_PROPOSAL §10 #19).
-   Accent has one job: things that need attention (warnings, overdue, offline) plus the focus ring. */
+   Accent has one job: things that need attention (warnings, overdue, offline, today) plus the focus ring. */
 :root {
   color-scheme: light dark;
   --bg: #f7f5f0;
@@ -64,18 +64,10 @@ label.check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 }
 /* No title bar (tauri.conf.json): the edge is where you resize, so show it while the pointer is over the window. */
 .app:hover { box-shadow: inset 0 0 0 1px var(--strong); }
-/* Translucent, down to 0%: any wallpaper can show through. Weak text colours give way, and every glyph, icon and
-   control border stands on a hard (0 blur) --bg outline, so contrast is against --bg, not the wallpaper
-   (tests/prefs.test.ts). Dialogs and the memo are opaque and keep the normal palette. */
-.clear > :not(dialog) {
-  --muted: var(--text); --accent: var(--accent-clear);
-  text-shadow: 1px 0 0 var(--bg), -1px 0 0 var(--bg), 0 1px 0 var(--bg), 0 -1px 0 var(--bg),
-    1px 1px 0 var(--bg), -1px -1px 0 var(--bg), 1px -1px 0 var(--bg), -1px 1px 0 var(--bg);
-}
-.clear :is(.today .day, button.primary, .seg [aria-pressed="true"]) { text-shadow: none; } /* --bg letters on a --text fill */
-.clear :is(button, input, select, textarea):not(.day, .chip, .more, .task-title) { box-shadow: 0 0 0 2px var(--bg); } /* borderless ones skip it */
-.clear :focus-visible { box-shadow: 0 0 0 5px var(--bg); } /* under the 2px ring at offset 2px */
-.clear svg { filter: drop-shadow(1px 0 0 var(--bg)) drop-shadow(-1px 0 0 var(--bg)) drop-shadow(0 1px 0 var(--bg)) drop-shadow(0 -1px 0 var(--bg)); }
+/* Translucent, down to 0%: any wallpaper can show through. Weak text colours give way to the strong ones.
+   No outline round glyphs or controls (dropped in session 16: it looked off); readability over the wallpaper is
+   the user's call with the opacity slider. Dialogs and the memo are opaque and keep the normal palette. */
+.clear > :not(dialog) { --muted: var(--text); --accent: var(--accent-clear); }
 .fatal { padding: 24px; min-height: 100%; background: var(--bg); }
 
 /* Header */
@@ -94,10 +86,17 @@ label.check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 
 .notices { padding: 8px 16px; border-bottom: 1px solid var(--line); display: grid; gap: 4px; }
 .notices p { display: flex; gap: 8px; align-items: flex-start; }
+.notices.intro { grid-auto-flow: column; justify-content: space-between; align-items: center; }
+.notices .actions { gap: 8px; }
 .notices svg { color: var(--accent); flex: none; margin-top: 3px; }
 
-/* Body: calendar + task panel */
-.body { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 300px; min-height: 0; }
+/* Body: calendar + memo panel (hidden by default; hamburger in the header toggles it) */
+.body { transition: grid-template-columns 0.2s ease; }
+.body.no-memo { grid-template-columns: minmax(0, 1fr) 0px; }
+/* Closed panel stays mounted so it can slide; visibility drops it from Tab and screen readers once the slide ends. */
+.body.no-memo .tasks { visibility: hidden; border-left-width: 0; transition: visibility 0s 0.2s; }
+@media (prefers-reduced-motion: reduce) { .body, .body.no-memo .tasks { transition: none; } }
+.body { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 300px; min-height: 0; overflow: hidden; } /* hidden: the border of the panel while it slides open pokes 1px past the edge */
 .cal { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; overflow: auto; }
 .dow, .grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .dow { font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
@@ -119,7 +118,9 @@ label.check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .dow .sun, .c0 .day { color: var(--sun); }
 .dow .sat, .c6 .day { color: var(--sat); }
 .out .day { color: var(--muted); } /* after the weekend rules: other-month days stay gray */
-.today .day, .today .day:hover { background: var(--text); color: var(--bg); font-weight: 650; }
+/* Today: accent frame plus a soft halo, the only glow in the app. Raised so the next cells don't paint over the halo. */
+.cell.today { position: relative; z-index: 1; box-shadow: inset 0 0 0 1.5px var(--accent), 0 0 12px color-mix(in srgb, var(--accent) 40%, transparent); }
+.today .day { color: var(--accent); font-weight: 700; } /* after the weekend and other-month rules, so it wins */
 .cell ul { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
 .chip {
   display: block; width: 100%; min-height: 20px; padding: 1px 6px; border: 0; border-radius: 4px; text-align: left;
@@ -174,7 +175,8 @@ label.check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) { .memo { animation: none; } }
 .more { min-height: 20px; padding: 0 6px; border: 0; font-size: 12px; color: var(--muted); }
 
-.tasks { display: flex; flex-direction: column; gap: 12px; padding: 12px 16px; border-left: 1px solid var(--line); overflow: auto; }
+.tasks { border-left: 1px solid var(--line); overflow: hidden; min-width: 0; }
+.tasks-in { display: flex; flex-direction: column; gap: 12px; padding: 12px 16px; width: 299px; height: 100%; overflow: auto; }
 .tasks ul { display: grid; gap: 2px; }
 .task { display: flex; gap: 8px; align-items: flex-start; }
 .task input { margin-top: 8px; }
@@ -211,6 +213,13 @@ dialog form { display: grid; gap: 12px; }
 .error { color: var(--accent); font-weight: 500; }
 .note { color: var(--muted); font-size: 13px; }
 .confirm { display: grid; gap: 8px; }
+/* Recurring routines under the new-routine form: one row per series, pressing it opens that series' editor. */
+dialog section.routines { margin: 16px 0 0; padding: 16px 0 0; border-bottom: 0; border-top: 1px solid var(--line); }
+.routines ul { display: grid; gap: 2px; }
+.routine {
+  width: 100%; display: flex; flex-direction: column; align-items: flex-start; padding: 4px 6px; border: 0;
+  text-align: left; white-space: normal;
+}
 .keys { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; font-size: 13px; }
 .keys dt { font-weight: 600; }
 
@@ -219,5 +228,7 @@ dialog form { display: grid; gap: 12px; }
   .body { grid-template-columns: minmax(0, 1fr); grid-auto-rows: max-content; overflow: auto; }
   .cal, .week { overflow: visible; grid-template-rows: auto auto; }
   .tasks { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
+  .tasks-in { width: auto; height: auto; overflow: visible; }
+  .body.no-memo .tasks { display: none; }
   .bar h1 { font-size: 16px; }
 }

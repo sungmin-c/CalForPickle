@@ -14,11 +14,15 @@ export interface Settings {
   autostart: boolean;
   /** Window background opacity in percent, MIN_OPACITY..100. */
   opacity: number;
+  /** The first-run note about autostart was dismissed. */
+  introSeen?: boolean;
+  /** The memo panel was left open. */
+  memoOpen?: boolean;
   /** Outer position and inner size in physical pixels. */
   window?: Rect;
 }
 
-/** The background may vanish completely: below 100% every glyph carries a --bg outline instead (app.css .clear, tests/prefs.test.ts). */
+/** The background may vanish completely (app.css .clear). */
 export const MIN_OPACITY = 0;
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -40,6 +44,8 @@ export function normalizeSettings(raw: string | null): Settings {
       ? Math.min(100, Math.max(MIN_OPACITY, Math.round(o.opacity)))
       : 100,
   };
+  if (o.introSeen === true) s.introSeen = true;
+  if (o.memoOpen === true) s.memoOpen = true;
   if (typeof o.owner === "string") s.owner = o.owner;
   if (typeof o.repo === "string") s.repo = o.repo;
   const w = o.window;
