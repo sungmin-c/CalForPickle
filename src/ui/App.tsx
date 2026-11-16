@@ -167,6 +167,7 @@ export function App() {
   const { sync, live } = engine;
   const status = sync.status();
   const st = STATE[status.state];
+  const title = calendarTitle(view, sel);
   const now = today();
 
   const saveEvent = async (e: Event) => {
@@ -195,7 +196,8 @@ export function App() {
           <button type="button" onClick={() => setSel(now)}>오늘</button>
           <button type="button" class="icon" aria-label={view === "month" ? "다음 달" : "다음 주"}
             onClick={() => setSel(shift(view, sel, 1))}><Next /></button>
-          <h1 data-tauri-drag-region>{calendarTitle(view, sel)}</h1>
+          {/* "2026년 " is its own span so a narrow header can drop it; the span needs its own drag mark. */}
+          <h1 data-tauri-drag-region><span class="year" data-tauri-drag-region>{title.slice(0, 6)}</span>{title.slice(6)}</h1>
         </div>
         <div class="seg" role="group" aria-label="보기">
           <button type="button" aria-pressed={view === "month"} onClick={() => setView("month")}>월</button>
@@ -206,9 +208,9 @@ export function App() {
         <div class="sync" data-tauri-drag-region>
           <span class={`status ${live ? status.state : "local"}`} role="status" title={live ? st.hint : undefined}>
             <span class="sr-only">동기화 상태: </span>
-            {live ? <><st.Icon /> {st.label}</> : <><Offline /> 연결 안 됨</>}
+            {live ? <><st.Icon /> <span class="label">{st.label}</span></> : <><Offline /> <span class="label">연결 안 됨</span></>}
           </span>
-          {live && <button type="button" onClick={syncNow} disabled={syncing}>{syncing ? "동기화 중…" : "지금 동기화"}</button>}
+          {live && <button type="button" class="sync-now" onClick={syncNow} disabled={syncing}>{syncing ? "동기화 중…" : "지금 동기화"}</button>}
         </div>
         <button type="button" class="icon" aria-label="설정" onClick={() => setShowSettings(true)}><Gear /></button>
         <button type="button" class="icon" aria-label="닫기 (트레이로 숨김)" title="닫기 (트레이로 숨김)"

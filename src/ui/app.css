@@ -71,9 +71,27 @@ label.check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .fatal { padding: 24px; min-height: 100%; background: var(--bg); }
 
 /* Header */
-.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+/* Always one line, down to the 480px minimum window. Narrowing gives up, in order: status words (icon stays),
+   then the manual sync button and the year; the title is the only part that shrinks, with an ellipsis as the last resort. */
+.bar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.bar > * { flex-shrink: 0; }
+.bar > .nav { flex-shrink: 1; min-width: 0; }
 .nav { display: flex; align-items: center; gap: 4px; }
-.bar h1 { font-size: 18px; font-weight: 650; letter-spacing: -0.01em; margin-left: 8px; font-variant-numeric: tabular-nums; }
+.nav > button { flex-shrink: 0; }
+.bar h1 {
+  font-size: 18px; font-weight: 650; letter-spacing: -0.01em; margin-left: 8px; font-variant-numeric: tabular-nums;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis;
+}
+@media (max-width: 900px) {
+  .bar { gap: 6px; padding: 8px 12px; }
+  .status .label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+}
+@media (max-width: 760px) {
+  .bar { padding: 8px; }
+  .bar .sync-now, .bar .year { display: none; }
+  .nav > button:not(.icon), .seg button, .bar > button:not(.icon) { padding: 4px 8px; }
+  .bar h1 { margin-left: 4px; }
+}
 .spacer { flex: 1; }
 .seg { display: inline-flex; }
 .seg button { border-radius: 0; }
@@ -114,6 +132,7 @@ label.check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
   align-self: flex-start; min-height: 28px; min-width: 28px; padding: 0 6px; border: 0; border-radius: 999px;
   font-variant-numeric: tabular-nums; font-weight: 500;
 }
+.day:hover { background: none; } /* the hover circle added nothing; keyboard focus still shows the outline */
 .week .day { border-radius: 8px; }
 .dow .sun, .c0 .day { color: var(--sun); }
 .dow .sat, .c6 .day { color: var(--sat); }

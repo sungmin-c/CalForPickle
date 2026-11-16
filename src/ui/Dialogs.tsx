@@ -5,7 +5,8 @@ import { describeRule } from "../recur";
 import { fromForm, koDate, toForm, type EventForm } from "./dates";
 import { Dot } from "./icons";
 
-/** Native modal dialog: the page behind is inert (focus stays inside) and Esc closes it. */
+/** Native modal dialog: the page behind is inert (focus stays inside); Esc or a click on the backdrop closes it.
+ *  only closes when press and release both land outside, so a drag out of a text field keeps it open. */
 export function Modal(p: { title: string; onClose: () => void; children: ComponentChildren }) {
   const ref = useRef<HTMLDialogElement>(null);
   const unmounted = useRef(false);
@@ -18,7 +19,7 @@ export function Modal(p: { title: string; onClose: () => void; children: Compone
   }, []);
   return (
     // The close event from that cleanup arrives later; passing it on would also close a dialog that replaced this one.
-    <dialog ref={ref} class="modal" aria-labelledby="modal-title" onClose={() => unmounted.current || p.onClose()}>
+    <dialog ref={ref} class="modal" closedby="any" aria-labelledby="modal-title" onClose={() => unmounted.current || p.onClose()}>
       <h2 id="modal-title">{p.title}</h2>
       {p.children}
     </dialog>
