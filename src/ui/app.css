@@ -1,0 +1,223 @@
+/* Tokens from ~/.claude/DESIGN.md (no project DESIGN.md). System fonts only (DESIGN_PROPOSAL §10 #19).
+   Accent has one job: things that need attention (warnings, overdue, offline) plus the focus ring. */
+:root {
+  color-scheme: light dark;
+  --bg: #f7f5f0;
+  --text: #1a1917;
+  --muted: #6b6862;
+  --line: #d9d4ca;
+  --strong: #8f8a80;
+  --accent: #c23a1b;
+  --tone: #ece8df;
+  --accent-clear: #6e1c0b; /* warnings when the window is translucent, see prefs.ts MIN_OPACITY */
+  --sun: #b02a1a; /* weekend day labels, Korean calendar habit; not --accent, which is 4.39:1 on --tone */
+  --sat: #2456b8;
+  font: 14px/1.5 "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141312;
+    --text: #eceae5;
+    --muted: #9b978f;
+    --line: #2f2d2a;
+    --strong: #6e6a63;
+    --accent: #f0714f;
+    --tone: #262422;
+    --accent-clear: #ffc4b3;
+    --sun: #ff8f7a;
+    --sat: #8ab4ff;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+html, body { background: transparent; } /* the window is transparent; .app paints the background */
+body { color: var(--text); word-break: keep-all; }
+h1, h2, h3, p, ul, dl, dd { margin: 0; }
+ul { list-style: none; padding: 0; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+button, input, select, textarea { font: inherit; color: inherit; }
+button {
+  cursor: pointer; min-height: 32px; padding: 4px 12px; border: 1px solid var(--strong); border-radius: 8px;
+  background: transparent; white-space: nowrap;
+}
+button:hover { background: var(--tone); }
+button:active { background: var(--line); }
+button:disabled { cursor: not-allowed; color: var(--muted); }
+button.primary { background: var(--text); color: var(--bg); border-color: var(--text); font-weight: 600; }
+button.danger { color: var(--accent); border-color: var(--accent); }
+button.danger:hover { background: transparent; text-decoration: underline; } /* accent on --tone is 4.39:1 in light */
+button.icon { width: 32px; padding: 0; display: inline-grid; place-items: center; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input, select, textarea {
+  min-height: 32px; padding: 4px 10px; border: 1px solid var(--strong); border-radius: 8px; background: var(--bg); width: 100%;
+}
+input[type="range"] { padding: 0; border: 0; background: transparent; accent-color: var(--text); cursor: pointer; }
+input[type="checkbox"] { width: 16px; height: 16px; min-height: 0; margin: 0; accent-color: var(--strong); cursor: pointer; } /* gray: --text glared white when checked in dark; --strong is 3:1+ on --bg */
+label { cursor: default; }
+label.check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+
+.app {
+  display: flex; flex-direction: column; height: 100%;
+  background: color-mix(in srgb, var(--bg) calc(var(--opacity, 1) * 100%), transparent);
+}
+/* No title bar (tauri.conf.json): the edge is where you resize, so show it while the pointer is over the window. */
+.app:hover { box-shadow: inset 0 0 0 1px var(--strong); }
+/* Translucent, down to 0%: any wallpaper can show through. Weak text colours give way, and every glyph, icon and
+   control border stands on a hard (0 blur) --bg outline, so contrast is against --bg, not the wallpaper
+   (tests/prefs.test.ts). Dialogs and the memo are opaque and keep the normal palette. */
+.clear > :not(dialog) {
+  --muted: var(--text); --accent: var(--accent-clear);
+  text-shadow: 1px 0 0 var(--bg), -1px 0 0 var(--bg), 0 1px 0 var(--bg), 0 -1px 0 var(--bg),
+    1px 1px 0 var(--bg), -1px -1px 0 var(--bg), 1px -1px 0 var(--bg), -1px 1px 0 var(--bg);
+}
+.clear :is(.today .day, button.primary, .seg [aria-pressed="true"]) { text-shadow: none; } /* --bg letters on a --text fill */
+.clear :is(button, input, select, textarea):not(.day, .chip, .more, .task-title) { box-shadow: 0 0 0 2px var(--bg); } /* borderless ones skip it */
+.clear :focus-visible { box-shadow: 0 0 0 5px var(--bg); } /* under the 2px ring at offset 2px */
+.clear svg { filter: drop-shadow(1px 0 0 var(--bg)) drop-shadow(-1px 0 0 var(--bg)) drop-shadow(0 1px 0 var(--bg)) drop-shadow(0 -1px 0 var(--bg)); }
+.fatal { padding: 24px; min-height: 100%; background: var(--bg); }
+
+/* Header */
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+.nav { display: flex; align-items: center; gap: 4px; }
+.bar h1 { font-size: 18px; font-weight: 650; letter-spacing: -0.01em; margin-left: 8px; font-variant-numeric: tabular-nums; }
+.spacer { flex: 1; }
+.seg { display: inline-flex; }
+.seg button { border-radius: 0; }
+.seg button:first-child { border-radius: 8px 0 0 8px; }
+.seg button:last-child { border-radius: 0 8px 8px 0; border-left: 0; }
+.seg button[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+.sync { display: flex; align-items: center; gap: 8px; }
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; }
+.status.offline, .status.local { color: var(--accent); }
+
+.notices { padding: 8px 16px; border-bottom: 1px solid var(--line); display: grid; gap: 4px; }
+.notices p { display: flex; gap: 8px; align-items: flex-start; }
+.notices svg { color: var(--accent); flex: none; margin-top: 3px; }
+
+/* Body: calendar + task panel */
+.body { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 300px; min-height: 0; }
+.cal { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; overflow: auto; }
+.dow, .grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.dow { font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.dow span { padding: 4px 8px; }
+.grid { grid-auto-rows: minmax(104px, 1fr); }
+.week { grid-template-rows: minmax(0, 1fr); }
+.week .dow { display: none; }
+.week .grid { grid-auto-rows: minmax(240px, 1fr); }
+
+.cell { display: flex; flex-direction: column; gap: 4px; padding: 8px; min-width: 0; min-height: 0; overflow: hidden; cursor: text; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.cell:nth-child(7n) { border-right: 0; }
+/* Only keyboard focus or editing shows the selected day; after a mouse click on prev/next the same day number must not look picked. */
+.cell.sel:has(:focus-visible) { background: var(--tone); box-shadow: inset 0 0 0 2px var(--muted); }
+.day {
+  align-self: flex-start; min-height: 28px; min-width: 28px; padding: 0 6px; border: 0; border-radius: 999px;
+  font-variant-numeric: tabular-nums; font-weight: 500;
+}
+.week .day { border-radius: 8px; }
+.dow .sun, .c0 .day { color: var(--sun); }
+.dow .sat, .c6 .day { color: var(--sat); }
+.out .day { color: var(--muted); } /* after the weekend rules: other-month days stay gray */
+.today .day, .today .day:hover { background: var(--text); color: var(--bg); font-weight: 650; }
+.cell ul { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.chip {
+  display: block; width: 100%; min-height: 20px; padding: 1px 6px; border: 0; border-radius: 4px; text-align: left;
+  font-size: 12px; overflow: hidden; text-overflow: ellipsis;
+}
+.chip.all { background: var(--tone); border: 1px solid var(--line); }
+.sel .chip.all { background: var(--bg); }
+.dot { display: inline-block; width: 7px; height: 7px; margin-right: 4px; border-radius: 50%; vertical-align: middle; box-shadow: 0 0 0 1px var(--line); }
+.chip time { color: var(--muted); margin-right: 6px; font-variant-numeric: tabular-nums; }
+.week .chip { white-space: normal; }
+/* One list per cell: events, then the day's tasks (one checkbox per line). No scrolling: rows that don't fit
+   give way to "+N개" (dayList.ts fitRows), so chip, task line and "+N개" all keep one 20px row height. */
+.cell .items {
+  flex: 1 1 0; min-height: 0; overflow: hidden; gap: 4px; font-size: 12px;
+  align-content: start; /* .cell ul is a grid; without this, spare height spreads the rows apart */
+  grid-auto-rows: max-content; /* li has overflow: hidden, so auto rows would shrink to 0 when the list is full */
+}
+.line { display: flex; align-items: center; min-height: 20px; padding-left: 2px; } /* flex: an inline checkbox would stretch the line box */
+.line span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.month .line span { white-space: nowrap; }
+.lines { margin: 0; padding: 0; font-size: 12px; } /* the memo's editable lines */
+.lines li { padding-left: 2px; }
+.lines li > * { vertical-align: middle; }
+.line input[type="checkbox"] { flex: none; }
+.line input[type="checkbox"], .lines input[type="checkbox"] { width: 13px; height: 13px; margin-right: 4px; }
+.line.done span, .lines li.done input[type="text"] { color: var(--muted); text-decoration: line-through; }
+.lines.editing li { white-space: nowrap; }
+.lines input[type="text"] {
+  width: calc(100% - 17px); min-height: 0; padding: 0 2px; border: 0; border-radius: 2px; background: var(--bg); font-size: 12px;
+}
+.lines input:focus-visible { outline-offset: -2px; } /* the scrolling list would clip an outside ring */
+.week .lines, .week .items { font-size: 13px; }
+/* Double-clicked day: a memo that pops a little out of its cell over the neighbours (not a dialog). */
+.cell.pop { position: relative; z-index: 3; overflow: visible; }
+.memo {
+  /* At least the whole cell plus the pop margin, so a short memo still covers its own day instead of floating off one edge. */
+  position: absolute; top: -6px; left: -6px; width: max(calc(100% + 12px), 240px); min-height: calc(100% + 12px); max-height: max(min(60vh, 420px), calc(100% + 12px));
+  display: flex; flex-direction: column; gap: 4px; padding: 8px; overflow-y: auto; cursor: auto;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--bg); box-shadow: 0 8px 24px rgb(0 0 0 / 0.22);
+  animation: pop 120ms ease-out;
+}
+.c0 .memo { left: 0; }
+.east .memo { left: auto; right: -6px; }
+.c6 .memo { right: 0; }
+.south .memo { top: auto; bottom: -6px; }
+.south.last .memo { bottom: 0; }
+.week .memo { top: 0; min-height: 0; max-height: 100%; } /* week cells are already tall: stay compact, never past the cell */
+.memo-day { margin: 0; font-size: 12px; font-weight: 650; color: var(--muted); }
+.memo .lines { flex: none; overflow: visible; }
+.memo .lines li { white-space: normal; }
+@keyframes pop { from { transform: scale(0.97); opacity: 0.6; } }
+@media (prefers-reduced-motion: reduce) { .memo { animation: none; } }
+.more { min-height: 20px; padding: 0 6px; border: 0; font-size: 12px; color: var(--muted); }
+
+.tasks { display: flex; flex-direction: column; gap: 12px; padding: 12px 16px; border-left: 1px solid var(--line); overflow: auto; }
+.tasks ul { display: grid; gap: 2px; }
+.task { display: flex; gap: 8px; align-items: flex-start; }
+.task input { margin-top: 8px; }
+.task-title {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 0;
+  padding: 4px 6px; border: 0; text-align: left; white-space: normal;
+}
+.task-title .done { color: var(--muted); text-decoration: line-through; }
+.meta { font-size: 12px; color: var(--muted); }
+.meta.late { color: var(--accent); }
+.empty { color: var(--muted); }
+.hint { color: var(--muted); margin: 0; font-size: 0.9em; }
+.date-ko { color: var(--muted); font-size: 12px; min-height: 18px; }
+details summary { cursor: pointer; color: var(--muted); padding: 4px 0; }
+details ul { margin-top: 4px; }
+
+/* Dialogs */
+dialog.modal {
+  width: min(480px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; padding: 20px 24px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--text);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.25);
+}
+dialog.modal::backdrop { background: rgb(0 0 0 / 0.4); }
+dialog h2 { font-size: 18px; font-weight: 650; margin-bottom: 16px; }
+dialog h3 { font-size: 14px; font-weight: 650; margin-bottom: 8px; }
+dialog section { padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
+dialog form { display: grid; gap: 12px; }
+.field { display: grid; gap: 4px; }
+.row .field { flex: 1; min-width: 120px; }
+.field label { font-size: 13px; font-weight: 500; }
+.row { display: flex; flex-wrap: wrap; gap: 12px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+.actions .danger:not(:has(+ .danger)) { margin-right: auto; } /* one or two delete buttons stay together on the left */
+.error { color: var(--accent); font-weight: 500; }
+.note { color: var(--muted); font-size: 13px; }
+.confirm { display: grid; gap: 8px; }
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; font-size: 13px; }
+.keys dt { font-weight: 600; }
+
+/* Narrow windows: the task panel moves under the calendar and the whole body scrolls. */
+@media (max-width: 760px) {
+  .body { grid-template-columns: minmax(0, 1fr); grid-auto-rows: max-content; overflow: auto; }
+  .cal, .week { overflow: visible; grid-template-rows: auto auto; }
+  .tasks { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
+  .bar h1 { font-size: 16px; }
+}

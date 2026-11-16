@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- CalForPickle app icon, drawn for this project. Source for `tauri icon`. Colors from ~/.claude/DESIGN.md. -->
+  <rect x="96" y="96" width="832" height="832" rx="160" fill="#1a1917"/>
+  <rect x="160" y="352" width="704" height="512" rx="72" fill="#f7f5f0"/>
+  <g fill="#d9d4ca">
+    <rect x="224" y="416" width="160" height="160" rx="32"/>
+    <rect x="432" y="416" width="160" height="160" rx="32"/>
+    <rect x="640" y="416" width="160" height="160" rx="32"/>
+    <rect x="224" y="640" width="160" height="160" rx="32"/>
+    <rect x="432" y="640" width="160" height="160" rx="32"/>
+  </g>
+  <rect x="640" y="640" width="160" height="160" rx="32" fill="#c23a1b"/>
+</svg>

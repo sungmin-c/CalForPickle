@@ -1,0 +1,126 @@
+// @ts-expect-error no @types/node (same as vite.config.ts); Vitest empties CSS imports, even ?raw
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import { fitsOnScreen, MIN_OPACITY, normalizeSettings } from "../src/ui/prefs";
+
+const css: string = readFileSync(new URL("../src/ui/app.css", import.meta.url), "utf8");
+
+describe("normalizeSettings", () => {
+  it("gives defaults for missing, broken or non-object input", () => {
+    const d = { alwaysBottom: false, autostart: false, opacity: 100 };
+    expect(normalizeSettings(null)).toEqual(d);
+    expect(normalizeSettings("{not json")).toEqual(d);
+    expect(normalizeSettings("[1,2]")).toEqual(d);
+    expect(normalizeSettings("null")).toEqual(d);
+  });
+
+  it("keeps valid values and drops unknown keys", () => {
+    const s = normalizeSettings(JSON.stringify({
+      owner: "me", repo: "cal", alwaysBottom: true, autostart: true, opacity: 85,
+      window: { x: -10, y: 20, width: 900, height: 600 }, junk: 1,
+    }));
+    expect(s).toEqual({
+      owner: "me", repo: "cal", alwaysBottom: true, autostart: true, opacity: 85,
+      window: { x: -10, y: 20, width: 900, height: 600 },
+    });
+  });
+
+  it("clamps and rounds opacity, rejects wrong types", () => {
+    expect(normalizeSettings('{"opacity": -5}').opacity).toBe(MIN_OPACITY);
+    expect(normalizeSettings('{"opacity": 10}').opacity).toBe(10);
+    expect(normalizeSettings('{"opacity": 250}').opacity).toBe(100);
+    expect(normalizeSettings('{"opacity": 80.6}').opacity).toBe(81);
+    expect(normalizeSettings('{"opacity": "80"}').opacity).toBe(100);
+    expect(normalizeSettings('{"autostart": "no", "alwaysBottom": 1}')).toMatchObject({ autostart: false, alwaysBottom: false });
+    expect(normalizeSettings('{"owner": 5}').owner).toBeUndefined();
+  });
+
+  it("drops a malformed window rect", () => {
+    for (const w of [{ x: 0, y: 0, width: 0, height: 600 }, { x: "1", y: 0, width: 900, height: 600 }, { x: 0, y: 0 }, null])
+      expect(normalizeSettings(JSON.stringify({ window: w })).window).toBeUndefined();
+  });
+});
+
+describe("fitsOnScreen", () => {
+  const screens = [{ x: 0, y: 0, width: 1920, height: 1040 }, { x: 1920, y: 0, width: 2560, height: 1400 }];
+  const win = (x: number, y: number) => ({ x, y, width: 1100, height: 680 });
+
+  it("accepts a window on either monitor", () => {
+    expect(fitsOnScreen(win(100, 100), screens)).toBe(true);
+    expect(fitsOnScreen(win(3000, 500), screens)).toBe(true);
+  });
+
+  it("rejects a window whose title bar is off every monitor", () => {
+    expect(fitsOnScreen(win(5000, 100), screens)).toBe(false); // monitor unplugged
+    expect(fitsOnScreen(win(100, -40), screens)).toBe(false); // title bar above the top edge
+    expect(fitsOnScreen(win(-1060, 100), screens)).toBe(false); // only 40 px left on screen
+    expect(fitsOnScreen(win(-32000, -32000), screens)).toBe(false); // Windows' minimized position
+    expect(fitsOnScreen(win(100, 100), [])).toBe(false);
+  });
+
+  it("accepts a window partly off screen when enough title bar is visible", () => {
+    expect(fitsOnScreen(win(-900, 100), screens)).toBe(true);
+  });
+});
+
+// Translucent mode (session 11): the background can go down to MIN_OPACITY, so text carries its own backdrop.
+// .clear draws a hard (0 blur) --bg outline round every glyph, and round button/input borders. Under that outline the
+// wallpaper no longer matters: text needs 4.5:1 against --bg, borders 3:1. A blurred shadow would be partly see-through.
+describe("translucent mode keeps text readable over any wallpaper", () => {
+  const [light, dark] = css.split("@media (prefers-color-scheme: dark)").map(tokens);
+  const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const lum = (rgb: number[]) => 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]);
+  const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const ratio = (a: string, b: string) => {
+    const [x, y] = [lum(rgb(a)), lum(rgb(b))];
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+  };
+  const rule = (selector: string) => {
+    const i = css.indexOf(selector);
+    expect(i, selector).toBeGreaterThanOrEqual(0);
+    return css.slice(i, css.indexOf("}", i));
+  };
+  /** Every layer of a shadow list is `<x> <y> 0 var(--bg)`; returns the offsets. */
+  const hardBgLayers = (decl: string) =>
+    decl.split(",").map((layer) => {
+      const m = layer.trim().match(/^(-?\d+px|0) (-?\d+px|0) 0 var\(--bg\)$/);
+      expect(m, layer).not.toBeNull();
+      return [parseInt(m![1]), parseInt(m![2])];
+    });
+
+  it("lets the background go fully transparent", () => {
+    expect(MIN_OPACITY).toBe(0);
+  });
+
+  it("text colours of that mode reach 4.5:1 on --bg, borders 3:1, in both themes", () => {
+    for (const t of [light, dark]) {
+      expect(ratio(t["--text"], t["--bg"])).toBeGreaterThanOrEqual(4.5);
+      expect(ratio(t["--accent-clear"], t["--bg"])).toBeGreaterThanOrEqual(4.5);
+      expect(ratio(t["--strong"], t["--bg"])).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("weekend colours reach 4.5:1 on --bg and on --tone (keyboard-selected day), in both themes", () => {
+    for (const t of [light, dark])
+      for (const c of ["--sun", "--sat"])
+        for (const bg of ["--bg", "--tone"]) expect(ratio(t[c], t[bg]), `${c} on ${bg}`).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("outlines text on all 8 sides with a hard --bg shadow", () => {
+    const decl = rule(".clear > :not(dialog)").match(/text-shadow:\s*([^;]+);/)![1];
+    const sides = new Set(hardBgLayers(decl).map(([x, y]) => `${Math.sign(x)},${Math.sign(y)}`));
+    expect(sides.size).toBe(8);
+    expect(sides.has("0,0")).toBe(false);
+  });
+
+  it("rings button and input borders with --bg outside the border", () => {
+    const decl = rule(".clear :is(button, input, select, textarea)").match(/box-shadow:\s*([^;]+);/)![1];
+    expect(decl.trim()).toBe("0 0 0 2px var(--bg)");
+  });
+});
+
+function tokens(block: string): Record<string, string> {
+  const root = block.slice(block.indexOf(":root"));
+  const body = root.slice(0, root.indexOf("}"));
+  return Object.fromEntries([...body.matchAll(/(--[\w-]+):\s*(#[0-9a-f]{6})/gi)].map((m) => [m[1], m[2]]));
+}

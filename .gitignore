@@ -1,0 +1,15 @@
+# Reverse-engineering scratch: copied third-party binaries and a (sanitized) DB copy
+analysis/
+.env
+
+node_modules
+dist
+*.log
+.vscode/*
+.idea
+
+# Kept local, not published (session 12): work notes, design notes, reverse-engineering notes, browser test logs
+docs/
+PROGRESS.md
+SESSION1_PROMPT.md
+.playwright-mcp/

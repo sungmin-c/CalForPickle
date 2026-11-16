@@ -1,0 +1,57 @@
+/** App settings in %APPDATA%\CalForPickle\settings.json. Not part of the synced data layer. */
+
+export interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface Settings {
+  owner?: string;
+  repo?: string;
+  alwaysBottom: boolean;
+  autostart: boolean;
+  /** Window background opacity in percent, MIN_OPACITY..100. */
+  opacity: number;
+  /** Outer position and inner size in physical pixels. */
+  window?: Rect;
+}
+
+/** The background may vanish completely: below 100% every glyph carries a --bg outline instead (app.css .clear, tests/prefs.test.ts). */
+export const MIN_OPACITY = 0;
+
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const isInt = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v);
+
+/** Broken or missing settings fall back to defaults instead of stopping the app. */
+export function normalizeSettings(raw: string | null): Settings {
+  let v: unknown;
+  try {
+    v = raw ? JSON.parse(raw) : {};
+  } catch {
+    v = {};
+  }
+  const o = isObj(v) ? v : {};
+  const s: Settings = {
+    alwaysBottom: o.alwaysBottom === true,
+    autostart: o.autostart === true, // off until the user turns it on (session 10): installing must not register a startup entry
+    opacity: typeof o.opacity === "number" && Number.isFinite(o.opacity)
+      ? Math.min(100, Math.max(MIN_OPACITY, Math.round(o.opacity)))
+      : 100,
+  };
+  if (typeof o.owner === "string") s.owner = o.owner;
+  if (typeof o.repo === "string") s.repo = o.repo;
+  const w = o.window;
+  if (isObj(w) && isInt(w.x) && isInt(w.y) && isInt(w.width) && isInt(w.height) && w.width > 0 && w.height > 0)
+    s.window = { x: w.x, y: w.y, width: w.width, height: w.height };
+  return s;
+}
+
+/** The top 30 px (the header, which is the drag handle) must sit inside one monitor's work area, at least 100 px wide, so the window can be dragged back. */
+export function fitsOnScreen(win: Rect, screens: Rect[]): boolean {
+  return screens.some((m) => {
+    const visible = Math.min(win.x + win.width, m.x + m.width) - Math.max(win.x, m.x);
+    return visible >= 100 && win.y >= m.y && win.y + 30 <= m.y + m.height;
+  });
+}
