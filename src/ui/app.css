@@ -200,26 +200,14 @@ label.check { display: flex; align-items: center; gap: 8px; min-height: 24px; cu
 }
 .lines input:focus-visible { outline-offset: -2px; } /* the scrolling list would clip an outside ring */
 .week .lines, .week .items { font-size: 13px; }
-/* Double-clicked day: a memo that pops a little out of its cell over the neighbours (not a dialog). */
-.cell.pop { position: relative; z-index: 3; overflow: visible; }
-.memo {
-  /* At least the whole cell plus the pop margin, so a short memo still covers its own day instead of floating off one edge. */
-  position: absolute; top: -6px; left: -6px; width: max(calc(100% + 12px), 240px); min-height: calc(100% + 12px); max-height: max(min(60vh, 420px), calc(100% + 12px));
-  display: flex; flex-direction: column; gap: 4px; padding: 8px; overflow-y: auto; cursor: auto;
-  border: 1px solid var(--line); border-radius: 8px; background: var(--bg); box-shadow: 0 8px 24px rgb(0 0 0 / 0.22);
-  animation: pop 120ms ease-out;
-}
-.c0 .memo { left: 0; }
-.east .memo { left: auto; right: -6px; }
-.c6 .memo { right: 0; }
-.south .memo { top: auto; bottom: -6px; }
-.south.last .memo { bottom: 0; }
-.week .memo { top: 0; min-height: 0; max-height: 100%; } /* week cells are already tall: stay compact, never past the cell */
-.memo-day { margin: 0; font-size: 12px; font-weight: 650; color: var(--muted); }
-.memo .lines { flex: none; overflow: visible; }
-.memo .lines li { white-space: normal; }
-@keyframes pop { from { transform: scale(0.97); opacity: 0.6; } }
-@media (prefers-reduced-motion: reduce) { .memo { animation: none; } }
+/* Double-clicked day: its memo in a dialog (above the desktop icons while pinned). */
+.modal .lines { font-size: 14px; }
+.modal .lines input[type="text"] { font-size: 14px; padding: 2px 4px; }
+.modal .lines .hit { margin-right: 0; padding-left: 0; }
+.modal .lines li { display: flex; align-items: center; }
+.modal .lines input[type="text"] { flex: 1; width: auto; }
+.day-events { margin: 0 0 8px; padding: 0; display: grid; gap: 2px; font-size: 13px; color: var(--muted); }
+.day-events li { display: flex; align-items: center; gap: 4px; }
 .more { min-height: 24px; margin-block: -2px; padding: 0 6px; border: solid transparent; border-width: 2px 0; background-clip: padding-box; font-size: 12px; color: var(--muted); }
 /* Checkbox hit area: a 24px label around the 13-16px box. It overlaps the gap after it, so the row layout stays as before. */
 .hit { position: relative; display: inline-flex; align-items: center; flex: none; width: 24px; min-height: 24px; margin-block: -2px; cursor: pointer; }

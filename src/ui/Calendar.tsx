@@ -5,6 +5,7 @@ import { lang, tr, type Title } from "../i18n";
 import { expand } from "../recur";
 import { addDays, addMonths, byTime, monthDays, onDay, timeLabel, weekDays } from "./dates";
 import { commitDay, dayList, fitRows, type Draft } from "./dayList";
+import { Modal } from "./Dialogs";
 import { Dot } from "./icons";
 
 export type View = "month" | "week";
@@ -27,6 +28,7 @@ export function Calendar(p: {
   onSelect: (d: string) => void;
   onSaveTasks: (t: Task[]) => void;
   onOpen: (e: Event) => void;
+  onEditing: (on: boolean) => void;
 }) {
   const days = p.view === "month" ? monthDays(p.sel) : weekDays(p.sel);
   const month = p.sel.slice(0, 7);
@@ -42,6 +44,7 @@ export function Calendar(p: {
   const refocus = useRef(false);
   // The cell being edited and which line gets the caret ("end" = a new blank line at the bottom).
   const [editing, setEditing] = useState<{ day: string; at: number | "end" } | null>(null);
+  useEffect(() => p.onEditing(editing !== null), [editing !== null]);
 
   // Rows shown per cell. null = render every row, measure them in the layout effect, then cut (before paint).
   const grid = useRef<HTMLDivElement>(null);
@@ -108,12 +111,9 @@ export function Calendar(p: {
           const tab = active ? 0 : -1;
           const lines = dayList(p.tasks, d);
           const edit = editing?.day === d ? editing : null;
-          // The memo grows away from the calendar's edges: right columns open leftward, bottom rows open upward.
-          const rows = days.length / 7;
           const holiday = lang === "en" ? usHolidayName(d) : holidayName(d);
           const cls = ["cell", active && "sel", d === p.today && "today", holiday && "hol", p.view === "month" && d.slice(0, 7) !== month && "out",
-            edit && "pop", i % 7 === 0 && "c0", i % 7 >= 5 && "east", i % 7 === 6 && "c6", rows > 2 && i >= days.length - 14 && "south",
-            i >= days.length - 7 && "last"];
+            i % 7 === 0 && "c0", i % 7 === 6 && "c6"];
           const chip = (e: Event, t: number) => (
             <li key={`${e.id}:${e.start}`}>
               <button type="button" class={`chip${e.allDay ? " all" : ""}`} tabIndex={t}
@@ -142,8 +142,6 @@ export function Calendar(p: {
           return (
             // Single click does nothing (session 9); double click opens the memo. Enter on the day button is the keyboard equivalent.
             <div key={d} class={cls.filter(Boolean).join(" ")}
-              // While editing, clicks in the memo must not pull focus out of the lines (that would end the edit).
-              onMouseDown={(x) => edit && !(x.target as HTMLElement).closest("input") && x.preventDefault()}
               onDblClick={(x) => {
                 if (edit || (p.view === "month" && d.slice(0, 7) !== month)) return; // a greyed day of another month must not switch the month
                 p.onSelect(d);
@@ -169,18 +167,15 @@ export function Calendar(p: {
                 )}
               </ul>
               {edit && (
-                // Not a dialog: the rest of the calendar stays live, and leaving the memo saves it like leaving the lines did.
-                <div class="memo">
-                  <p class="memo-day" aria-hidden="true">{tr.dayHeading(d)}</p>
-                  {list.length > 0 && <ul>{list.map((e) => chip(e, -1))}</ul>}
-                  <DayEditor key={d} day={d} tasks={lines} at={edit.at}
-                    onDone={(drafts, refocusDay) => {
-                      setEditing(null);
-                      const changed = commitDay(d, lines, drafts);
-                      if (changed.length) p.onSaveTasks(changed);
-                      if (refocusDay) document.querySelector<HTMLElement>(`[data-day="${d}"]`)?.focus();
-                    }} />
-                </div>
+                // A dialog, so it can sit above the desktop icons; leaving it (Esc, Tab, a click outside) saves like leaving the lines did.
+                <DayEditor key={d} day={d} tasks={lines} at={edit.at} events={list}
+                  onDone={(drafts, refocusDay) => {
+                    setEditing(null);
+                    const changed = commitDay(d, lines, drafts);
+                    if (changed.length) p.onSaveTasks(changed);
+                    // After the dialog has closed: while it is modal, focus() on the page behind is ignored.
+                    if (refocusDay) setTimeout(() => document.querySelector<HTMLElement>(`[data-day="${d}"]`)?.focus());
+                  }} />
               )}
             </div>
           );
@@ -191,7 +186,7 @@ export function Calendar(p: {
 }
 
 /** One input per line, bound to the task id, so an edit never has to guess which task a line was. Ends on Esc, Tab or focus leaving the lines. */
-function DayEditor(p: { day: string; tasks: Task[]; at: number | "end"; onDone: (d: Draft[], refocusDay: boolean) => void }) {
+function DayEditor(p: { day: string; tasks: Task[]; events: Event[]; at: number | "end"; onDone: (d: Draft[], refocusDay: boolean) => void }) {
   const blank = (): Draft => ({ id: crypto.randomUUID(), title: "", done: false });
   const [rows, setRows] = useState<Draft[]>(() => {
     const r = p.tasks.map((t) => ({ id: t.id, title: t.title, done: t.status === "done" }));
@@ -204,13 +199,19 @@ function DayEditor(p: { day: string; tasks: Task[]; at: number | "end"; onDone: 
   latest.current = rows;
 
   const input = (i: number) => box.current?.querySelectorAll<HTMLInputElement>("input[type=text]")[i];
-  useLayoutEffect(() => {
+  const place = () => {
     if (want.current === null) return;
     const el = input(want.current);
     want.current = null;
     el?.focus();
     el?.setSelectionRange(el.value.length, el.value.length);
+  };
+  // New lines take focus before paint, or fast typing lands in the old line. The dialog opens in Modal's effect, so the
+  // first focus waits for that (focus() on a closed dialog is ignored).
+  useLayoutEffect(() => {
+    if (box.current?.closest("dialog")?.open) place();
   }, [rows]);
+  useEffect(place, []);
 
   const finish = (refocusDay: boolean) => {
     if (closed.current) return;
@@ -260,19 +261,28 @@ function DayEditor(p: { day: string; tasks: Task[]; at: number | "end"; onDone: 
   };
 
   return (
-    <ul class="lines editing" ref={box}
-      onFocusOut={(ev) => !box.current?.contains(ev.relatedTarget as Node | null) && finish(false)}>
-      {rows.map((r, i) => (
-        <li key={r.id} class={r.done ? "done" : undefined}>
-          <label class="hit">
-            <input type="checkbox" tabIndex={-1} checked={r.done} aria-label={tr.doneLabel(r.title || tr.blankLine)}
-              onChange={() => patch(i, { done: !r.done })} />
-          </label>
-          <input type="text" value={r.title} aria-label={tr.lineLabel(p.day, i + 1)}
-            onInput={(ev) => patch(i, { title: ev.currentTarget.value })}
-            onKeyDown={(ev) => onKey(ev, i)} onPaste={(ev) => onPaste(ev, i)} />
-        </li>
-      ))}
-    </ul>
+    <Modal title={tr.dayHeading(p.day)} onClose={() => finish(true)}>
+      {p.events.length > 0 && (
+        <ul class="day-events">
+          {p.events.map((e) => (
+            <li key={`${e.id}:${e.start}`}><Dot color={e.color} />{!e.allDay && <time>{timeLabel(e)}</time>}{e.title || tr.untitled}</li>
+          ))}
+        </ul>
+      )}
+      <ul class="lines editing" ref={box}
+        onFocusOut={(ev) => !box.current?.contains(ev.relatedTarget as Node | null) && finish(false)}>
+        {rows.map((r, i) => (
+          <li key={r.id} class={r.done ? "done" : undefined}>
+            <label class="hit">
+              <input type="checkbox" tabIndex={-1} checked={r.done} aria-label={tr.doneLabel(r.title || tr.blankLine)}
+                onChange={() => patch(i, { done: !r.done })} />
+            </label>
+            <input type="text" value={r.title} aria-label={tr.lineLabel(p.day, i + 1)}
+              onInput={(ev) => patch(i, { title: ev.currentTarget.value })}
+              onKeyDown={(ev) => onKey(ev, i)} onPaste={(ev) => onPaste(ev, i)} />
+          </li>
+        ))}
+      </ul>
+    </Modal>
   );
 }
