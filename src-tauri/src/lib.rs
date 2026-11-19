@@ -88,6 +88,7 @@ pub fn run() {
             app_exit,
             set_tray_labels,
             desktop::desktop_pin,
+            desktop::desktop_raise,
             secret::secret_set,
             secret::secret_exists,
             secret::secret_delete,

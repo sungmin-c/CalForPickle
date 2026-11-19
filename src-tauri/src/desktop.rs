@@ -1,7 +1,8 @@
 //! Pinned = a child of Progman placed right under the icon layer (SHELLDLL_DefView), above the wallpaper WorkerW:
-//! untouched by Win+D (session 22). The window never comes above the icons. The icon layer takes every click there,
-//! so a low-level mouse hook passes left clicks on empty desktop over the window to the page, which replays them on
-//! the element under the pointer. Only clicks go across (no hover, no dragging).
+//! untouched by Win+D (session 22). The icon layer takes every click there, so a low-level mouse hook passes left
+//! clicks on empty desktop over the window to the page, which replays them on the element under the pointer. Only
+//! clicks go across (no hover, no dragging). While a dialog or an edit is open the page asks for desktop_raise: the
+//! window goes above the icons, so it gets real mouse input (a slider drags, nothing is covered by an icon).
 //! tao rewrites GWL_STYLE on any flag change (show, hide, resizable), dropping WS_CHILD, so a watcher re-attaches.
 
 #![allow(unsafe_op_in_unsafe_fn)] // the unsafe fns here are thin Win32 wrappers
@@ -56,6 +57,8 @@ const GWL_STYLE: i32 = -16;
 const WS_POPUP: isize = 0x8000_0000;
 const WS_CHILD: isize = 0x4000_0000;
 const WS_VISIBLE: isize = 0x1000_0000;
+const SWP_NOSIZE: u32 = 0x1;
+const SWP_NOMOVE: u32 = 0x2;
 const SWP_NOACTIVATE: u32 = 0x10;
 const SWP_FRAMECHANGED: u32 = 0x20;
 const SMTO_ABORTIFHUNG: u32 = 2;
@@ -217,6 +220,20 @@ pub fn desktop_pin(window: WebviewWindow, on: bool) -> Result<(), String> {
             UnhookWindowsHookEx(k);
         })?;
     }
+    Ok(())
+}
+
+/// Above the icon layer while the page is being edited, back under it afterwards. Does nothing unless attached.
+/// With the window on top, WindowFromPoint is the page, not the icon list: the hook lets clicks and wheel through.
+#[tauri::command]
+pub fn desktop_raise(window: WebviewWindow, on: bool) -> Result<(), String> {
+    let h = window.hwnd().map_err(|e| e.to_string())?.0 as H;
+    let (pinned, hwnd, _, _, p) = snapshot();
+    if !pinned || hwnd != h || !unsafe { attached(h, p) } {
+        return Ok(());
+    }
+    let after = if on { 0 } else { unsafe { icons(p) } }; // 0 = HWND_TOP
+    unsafe { SetWindowPos(h, after, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) };
     Ok(())
 }
 
