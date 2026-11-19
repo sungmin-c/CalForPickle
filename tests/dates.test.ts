@@ -1,6 +1,8 @@
-import { weekShortTitle } from "../src/ui/Calendar";
+import { calendarTitle } from "../src/ui/Calendar";
+import { setZone, ZONE } from "../src/zone";
+const home = ZONE;
 import { describe, expect, it } from "vitest";
-import { addMonths, fromForm, koDate, monthDays, onDay, toForm, weekDays } from "../src/ui/dates";
+import { addMonths, fromForm, longDate, monthDays, onDay, toForm, weekDays } from "../src/ui/dates";
 import { ev } from "./fixtures";
 
 describe("calendar grid (Sunday start)", () => {
@@ -45,11 +47,14 @@ describe("event form round trip", () => {
     expect([f.startDate, f.endDate]).toEqual(["2026-11-20", "2026-11-20"]);
     expect(fromForm(f, e)).toMatchObject({ start: "2026-11-20", end: "2026-11-21" });
   });
-  it("timed values are written as Seoul +09:00 even if read in UTC", () => {
+  it("times show in the PC's zone; unchanged ones keep their stored text, changed ones take the PC's offset (Q19)", () => {
+    setZone("Asia/Seoul");
     const e = ev({ id: "b", start: "2026-11-20T05:00:00Z", end: "2026-11-20T06:30:00Z" });
     const f = toForm(e);
     expect([f.startTime, f.endTime]).toEqual(["14:00", "15:30"]);
-    expect(fromForm(f, e)).toMatchObject({ start: "2026-11-20T14:00:00+09:00", end: "2026-11-20T15:30:00+09:00" });
+    expect(fromForm(f, e)).toMatchObject({ start: e.start, end: e.end });
+    expect(fromForm({ ...f, endTime: "16:00" }, e)).toMatchObject({ start: "2026-11-20T14:00:00+09:00", end: "2026-11-20T16:00:00+09:00", tz: "Asia/Seoul" });
+    setZone(home);
   });
   it("rejects an end before the start", () => {
     const e = ev({ id: "c" });
@@ -57,20 +62,20 @@ describe("event form round trip", () => {
   });
 });
 
-describe("koDate: Korean reading of a date input (session 12)", () => {
+describe("longDate: Korean reading of a date input (session 12)", () => {
   it("spells year, month, day and weekday", () => {
-    expect(koDate("2026-02-01")).toBe("2026년 2월 1일 (일)");
-    expect(koDate("2026-11-21")).toBe("2026년 11월 21일 (토)");
+    expect(longDate("2026-02-01")).toBe("2026년 2월 1일 (일)");
+    expect(longDate("2026-11-21")).toBe("2026년 11월 21일 (토)");
   });
   it("is empty for an empty or half-typed input", () => {
-    expect(koDate("")).toBe("");
-    expect(koDate("2026-13-01")).toBe("");
+    expect(longDate("")).toBe("");
+    expect(longDate("2026-13-01")).toBe("");
   });
 });
 
 describe("weekShortTitle (narrow header)", () => {
   it("drops the month on the end date only when the week stays in one month", () => {
-    expect(weekShortTitle("2026-11-16")).toBe("11.15 – 21");
-    expect(weekShortTitle("2026-12-01")).toBe("11.29 – 12.5");
+    expect(calendarTitle("week", "2026-11-16").short).toBe("11.15 – 21");
+    expect(calendarTitle("week", "2026-12-01").short).toBe("11.29 – 12.5");
   });
 });

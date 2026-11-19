@@ -1,6 +1,8 @@
 // RRULE subset (RFC 5545) the app can expand. Anything outside it is rejected so the file is held, never half-shown.
-// ponytail: day-by-day scan from the series start, fine for a personal calendar; jump by period if rules get dense or old.
-import { instant, seoulDate, seoulStamp, type Event } from "./model";
+// ponytail: day-by-day scan over the range; with COUNT it still starts at the series start, so an old COUNT series is slow.
+import { tr } from "./i18n";
+import { instant, isDate, type Event } from "./model";
+import { at, dateIn, dayStart, offsetMin, stampIn, ZONE, zoneOf } from "./zone";
 
 type Freq = "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY";
 export interface Rule {
@@ -37,16 +39,21 @@ function nums(v: string, min: number, max: number): number[] {
   });
 }
 
-function untilOf(v: string): number {
+/** UNTIL without "Z" is a wall time in the series' zone. */
+function untilOf(v: string, zone: string): number {
   const m = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z?))?$/.exec(v);
   if (!m) throw new Error(`UNTIL "${v}"`);
   const date = `${m[1]}-${m[2]}-${m[3]}`;
-  if (!m[4]) return instant(addDays(date, 1)) - 1; // a bare date includes that whole day
-  return Date.parse(`${date}T${m[4]}:${m[5]}:${m[6]}${m[7] ? "Z" : "+09:00"}`);
+  if (!isDate(date)) throw new Error(`UNTIL "${v}"`);
+  if (!m[4]) return dayStart(addDays(date, 1), zone) - 1; // a bare date includes that whole day
+  const time = `${m[4]}:${m[5]}:${m[6]}`;
+  const ms = m[7] ? Date.parse(`${date}T${time}Z`) : at(date, time, zone);
+  if (Number.isNaN(ms)) throw new Error(`UNTIL "${v}"`);
+  return ms;
 }
 
-/** Throws on anything outside the supported subset. */
-export function parseRule(text: string): Rule {
+/** Throws on anything outside the supported subset. `zone` only matters for an UNTIL without "Z". */
+export function parseRule(text: string, zone = "+09:00"): Rule {
   const parts = new Map<string, string>();
   for (const p of text.replace(/^RRULE:/, "").split(";")) {
     const [k, v, extra] = p.split("=");
@@ -54,7 +61,7 @@ export function parseRule(text: string): Rule {
     parts.set(k, v);
   }
   const freq = parts.get("FREQ") as Freq;
-  if (!ALLOWED[freq]) throw new Error(`FREQ "${String(freq)}"`);
+  if (!Object.prototype.hasOwnProperty.call(ALLOWED, freq)) throw new Error(`FREQ "${String(freq)}"`);
   for (const k of parts.keys()) if (!COMMON.includes(k) && !ALLOWED[freq].includes(k)) throw new Error(`unsupported ${k}`);
   if (parts.has("COUNT") && parts.has("UNTIL")) throw new Error("COUNT with UNTIL");
   const r: Rule = { freq, interval: parts.has("INTERVAL") ? nums(parts.get("INTERVAL")!, 1, 999)[0] : 1 };
@@ -67,7 +74,7 @@ export function parseRule(text: string): Rule {
   if (parts.has("BYMONTH")) r.byMonth = nums(parts.get("BYMONTH")!, 1, 12);
   if (parts.has("BYMONTHDAY")) r.byMonthDay = nums(parts.get("BYMONTHDAY")!, 1, 31);
   if (parts.has("COUNT")) r.count = nums(parts.get("COUNT")!, 1, 100_000)[0];
-  if (parts.has("UNTIL")) r.until = untilOf(parts.get("UNTIL")!);
+  if (parts.has("UNTIL")) r.until = untilOf(parts.get("UNTIL")!, zone);
   return r;
 }
 
@@ -91,54 +98,88 @@ function matcher(r: Rule, start: string): (d: string) => boolean {
   };
 }
 
-/** Recurring events become one copy per occurrence overlapping [from, to) (Seoul dates); others pass through. */
+/** Overlaps the local days [from, to). All-day dates are the same in every zone; a zero-length event counts as 1 ms. */
+export function overlaps(e: Event, from: string, to: string): boolean {
+  if (e.allDay) return e.start < to && (e.end > from || e.start >= from);
+  const s = instant(e.start);
+  return s < dayStart(to) && Math.max(instant(e.end), s + 1) > dayStart(from);
+}
+
+/** Zone the series repeats in (Q18): its tz, else the fixed offset of start. All-day series are plain dates. */
+const seriesZone = (e: Pick<Event, "start" | "allDay" | "tz">) => (e.allDay ? ZONE : zoneOf(e.start, e.tz));
+
+/** Recurring events become one copy per occurrence overlapping the local days [from, to); others pass through.
+ *  Occurrences are matched on dates in the series' zone (exdates too) and keep its offset in their stamps. */
 export function expand(events: Event[], from: string, to: string): Event[] {
-  const fromMs = instant(from);
   const out: Event[] = [];
   for (const e of events) {
     if (!e.recurrence) {
       out.push(e);
       continue;
     }
-    const r = parseRule(e.recurrence);
+    const zone = seriesZone(e);
+    const r = parseRule(e.recurrence, zone);
     const s = instant(e.start);
-    const first = seoulDate(s);
+    const first = e.allDay ? e.start.slice(0, 10) : dateIn(s, zone);
+    const time = stampIn(s, zone).slice(11, 23);
     const span = instant(e.end) - s;
-    const days = e.allDay ? daysBetween(e.start, e.end) : 0;
+    const days = e.allDay ? daysBetween(first, e.end.slice(0, 10)) : 0; // slice: a stray timed value cannot yield NaN
     const hits = matcher(r, first);
     const skip = new Set(e.exdates);
+    const stamp = (x: number) => stampIn(x, zone).replace(".000", "");
+    // The series' date can run up to a day either side of the local one.
+    const before = addDays(from, -2);
+    const last = addDays(to, 2);
+    const msOf = (d: string) => (e.allDay ? dayStart(d) : at(d, time, zone));
     let n = 0;
-    for (let d = first; d < to; d = addDays(d, 1)) {
+    // `hits` tells a date's period from the start itself, so without COUNT the days before the range can be skipped.
+    const scan = r.count === undefined && before > first ? before : first;
+    for (let d = scan; d < last; d = addDays(d, 1)) {
       if (!hits(d)) continue;
-      const ms = s + daysBetween(first, d) * DAY_MS; // Seoul has no DST
-      if (r.until !== undefined && ms > r.until) break;
+      if (r.until !== undefined && msOf(d) > r.until) break;
       if (r.count !== undefined && ++n > r.count) break;
-      if (skip.has(d)) continue;
-      const end = e.allDay ? instant(addDays(d, days)) : ms + span;
-      if (Math.max(end, ms + 1) <= fromMs) continue;
-      const stamp = (x: number) => seoulStamp(x).replace(".000", "");
-      out.push(e.allDay ? { ...e, start: d, end: addDays(d, days) } : { ...e, start: stamp(ms), end: stamp(end) });
+      if (d < before || skip.has(d)) continue; // earlier occurrences only count toward COUNT
+      const ms = msOf(d);
+      const occ = e.allDay ? { ...e, start: d, end: addDays(d, days) } : { ...e, start: stamp(ms), end: stamp(ms + span) };
+      if (overlaps(occ, from, to)) out.push(occ);
     }
   }
   return out;
 }
 
-const DOW = ["일", "월", "화", "수", "목", "금", "토"];
+/** No occurrence left from today on. ponytail: looks 10 years ahead; a rule with no UNTIL/COUNT never ends. */
+export function hasEnded(e: Event, today: string): boolean {
+  const r = parseRule(e.recurrence!);
+  if (r.until === undefined && r.count === undefined) return false;
+  return expand([e], today, addDays(today, 3650)).length === 0;
+}
 
-/** "매주 월요일", "2주마다 화요일, 10회", "매년 1월 12일, 2030-12-31까지". */
-export function describeRule(text: string, start: string): string {
-  const r = parseRule(text);
-  const [, m, d] = ymd(seoulDate(instant(start)));
-  const unit = { DAILY: "일", WEEKLY: "주", MONTHLY: "월", YEARLY: "년" }[r.freq];
-  const head = r.interval > 1 ? `${r.interval}${r.freq === "MONTHLY" ? "개월" : unit}마다` : `매${unit}`;
-  const days = (r.byDay ?? (r.freq === "WEEKLY" ? [weekday(seoulDate(instant(start)))] : [])).map((i) => DOW[i]);
-  const monthDays = (r.byMonthDay ?? [d]).join("·");
-  const detail = {
-    DAILY: days.length ? `${days.join("·")}요일` : "",
-    WEEKLY: `${days.join("·")}요일`,
-    MONTHLY: `${monthDays}일`,
-    YEARLY: `${(r.byMonth ?? [m]).join("·")}월 ${monthDays}일`,
-  }[r.freq];
-  const tail = r.count ? `, ${r.count}회` : r.until !== undefined ? `, ${seoulDate(r.until)}까지` : "";
-  return `${head}${detail ? ` ${detail}` : ""}${tail}`;
+/** Routine list: live recurring events, running first then by title. `hasEnded` runs once per routine, not per sort comparison. */
+export function routineList(events: Event[], today: string): { routines: Event[]; ended: Set<string> } {
+  const ended = new Set<string>();
+  const routines = events.filter((e) => e.recurrence && !e.deleted);
+  for (const e of routines) if (hasEnded(e, today)) ended.add(e.id);
+  routines.sort((a, b) => Number(ended.has(a.id)) - Number(ended.has(b.id)) || a.title.localeCompare(b.title, "ko"));
+  return { routines, ended };
+}
+
+/** "매주 월요일", "Every 2 weeks on Tue, 10 times". A series on another zone than the PC's says which (Q13). */
+export function describeRule(text: string, start: string, tz?: string): string {
+  const allDay = start.length === 10;
+  const zone = seriesZone({ start, allDay, tz });
+  const r = parseRule(text, zone);
+  const first = allDay ? start : dateIn(instant(start), zone);
+  const [, m, d] = ymd(first);
+  const ms = instant(start);
+  const other = !allDay && offsetMin(ms, zone) !== offsetMin(ms, ZONE);
+  return tr.rule({
+    freq: r.freq,
+    interval: r.interval,
+    days: r.byDay ?? (r.freq === "WEEKLY" ? [weekday(first)] : []),
+    months: r.byMonth ?? [m],
+    monthDays: r.byMonthDay ?? [d],
+    count: r.count,
+    until: r.until === undefined ? undefined : dateIn(r.until, zone),
+    zone: other ? tz ?? `UTC${zone === "Z" ? "" : zone}` : undefined,
+  });
 }

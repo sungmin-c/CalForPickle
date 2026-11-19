@@ -1,8 +1,9 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { tr } from "../i18n";
 import type { Event, Priority, Status, Task } from "../model";
 import { describeRule } from "../recur";
-import { fromForm, koDate, toForm, type EventForm } from "./dates";
+import { fromForm, longDate, toForm, type EventForm } from "./dates";
 import { Dot } from "./icons";
 
 /** Native modal dialog: the page behind is inert (focus stays inside); Esc or a click on the backdrop closes it.
@@ -33,8 +34,8 @@ const Field = (p: { id: string; label: string; children: ComponentChildren }) =>
   </div>
 );
 
-/** Korean reading under a date input; aria-hidden because the input itself already announces the date. */
-const DateKo = (p: { d: string }) => <span class="date-ko" aria-hidden="true">{koDate(p.d)}</span>;
+/** Spelled-out date under a date input; aria-hidden because the input itself already announces the date. */
+const DateKo = (p: { d: string }) => <span class="date-ko" aria-hidden="true">{longDate(p.d)}</span>;
 
 type Input = { currentTarget: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement };
 
@@ -53,7 +54,7 @@ export function newEvent(day: string): Event {
 }
 
 export function EventDialog(p: {
-  event: Event; isNew: boolean; day?: string; routines: Event[];
+  event: Event; isNew: boolean; day?: string; routines: Event[]; ended: Set<string>;
   onPick: (e: Event) => void; onSave: (e: Event) => void; onClose: () => void;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -75,20 +76,20 @@ export function EventDialog(p: {
   };
 
   return (
-    <Modal title={p.isNew ? "새 루틴" : "루틴 편집"} onClose={p.onClose}>
+    <Modal title={p.isNew ? tr.newRoutine : tr.editRoutine} onClose={p.onClose}>
       <form onSubmit={submit}>
-        <Field id="ev-title" label="제목">
+        <Field id="ev-title" label={tr.title}>
           <input id="ev-title" value={f.title} onInput={set("title")} autoFocus />
         </Field>
         {p.event.recurrence && (
-          <p class="hint">반복: {describeRule(p.event.recurrence, p.event.start)}. 아래 날짜는 첫 회차이며, 바꾸면 모든 회차가 함께 옮겨집니다.</p>
+          <p class="hint">{tr.repeats(describeRule(p.event.recurrence, p.event.start, p.event.tz))}</p>
         )}
         <label class="check">
           <input type="checkbox" checked={f.allDay} onChange={(e) => setF({ ...f, allDay: e.currentTarget.checked })} />
-          종일
+          {tr.allDay}
         </label>
         <div class="row">
-          <Field id="ev-sd" label="시작 날짜">
+          <Field id="ev-sd" label={tr.startDate}>
             <input id="ev-sd" type="date" value={f.startDate} required
               onInput={(e) => {
                 const v = e.currentTarget.value;
@@ -98,18 +99,18 @@ export function EventDialog(p: {
             <DateKo d={f.startDate} />
           </Field>
           {!f.allDay && (
-            <Field id="ev-st" label="시작 시각">
+            <Field id="ev-st" label={tr.startTime}>
               <input id="ev-st" type="time" value={f.startTime} required onInput={set("startTime")} />
             </Field>
           )}
         </div>
         <div class="row">
-          <Field id="ev-ed" label={f.allDay ? "마지막 날짜" : "끝 날짜"}>
+          <Field id="ev-ed" label={f.allDay ? tr.lastDate : tr.endDate}>
             <input id="ev-ed" type="date" value={f.endDate} required onInput={set("endDate")} />
             <DateKo d={f.endDate} />
           </Field>
           {!f.allDay && (
-            <Field id="ev-et" label="끝 시각">
+            <Field id="ev-et" label={tr.endTime}>
               <input id="ev-et" type="time" value={f.endTime} required onInput={set("endTime")} />
             </Field>
           )}
@@ -117,10 +118,10 @@ export function EventDialog(p: {
         {/* New events are title + date only; editing still shows what Pickle may have written. */}
         {!p.isNew && (
           <>
-            <Field id="ev-loc" label="장소">
+            <Field id="ev-loc" label={tr.location}>
               <input id="ev-loc" value={f.location} onInput={set("location")} />
             </Field>
-            <Field id="ev-notes" label="메모">
+            <Field id="ev-notes" label={tr.notes}>
               <textarea id="ev-notes" rows={3} value={f.notes} onInput={set("notes")} />
             </Field>
           </>
@@ -128,46 +129,46 @@ export function EventDialog(p: {
         {error && <p class="error" role="alert">{error}</p>}
         {confirmDelete ? (
           <div class="confirm" role="group" aria-labelledby="del-q">
-            <p id="del-q">'{p.event.title}' 루틴을 모든 회차와 함께 삭제할까요?</p>
+            <p id="del-q">{tr.confirmDeleteRoutine(p.event.title)}</p>
             <div class="actions">
-              <button type="button" class="danger" onClick={() => p.onSave({ ...p.event, deleted: true })}>삭제</button>
-              <button type="button" ref={cancelRef} onClick={() => setConfirmDelete(false)}>취소</button>
+              <button type="button" class="danger" onClick={() => p.onSave({ ...p.event, deleted: true })}>{tr.delete}</button>
+              <button type="button" ref={cancelRef} onClick={() => setConfirmDelete(false)}>{tr.cancel}</button>
             </div>
           </div>
         ) : (
           <div class="actions">
             {!p.isNew && p.event.recurrence && p.day && (
               <button type="button" class="danger" onClick={() => p.onSave({ ...p.event, exdates: [...new Set([...(p.event.exdates ?? []), p.day!])].sort() })}>
-                이번 회차만 삭제
+                {tr.deleteOne}
               </button>
             )}
             {!p.isNew && (
               <button type="button" class="danger"
                 onClick={() => (p.event.recurrence ? setConfirmDelete(true) : p.onSave({ ...p.event, deleted: true }))}>
-                {p.event.recurrence ? "전체 삭제" : "삭제"}
+                {p.event.recurrence ? tr.deleteAll : tr.delete}
               </button>
             )}
-            <button type="button" onClick={p.onClose}>취소</button>
-            <button type="submit" class="primary">저장</button>
+            <button type="button" onClick={p.onClose}>{tr.cancel}</button>
+            <button type="submit" class="primary">{tr.save}</button>
           </div>
         )}
       </form>
       {p.isNew && (
         <section class="routines" aria-labelledby="rt-h">
-          <h3 id="rt-h">반복 루틴 {p.routines.length}개</h3>
+          <h3 id="rt-h">{tr.routines(p.routines.length)}</h3>
           {p.routines.length ? (
             <ul>
               {p.routines.map((e) => (
                 <li key={e.id}>
                   <button type="button" class="routine" onClick={() => p.onPick(e)}>
-                    <span><Dot color={e.color} />{e.title || "(제목 없음)"}</span>
-                    <span class="meta">{describeRule(e.recurrence!, e.start)}</span>
+                    <span><Dot color={e.color} />{e.title || tr.untitled}</span>
+                    <span class="meta">{p.ended.has(e.id) && tr.ended}{describeRule(e.recurrence!, e.start, e.tz)}</span>
                   </button>
                 </li>
               ))}
             </ul>
           ) : (
-            <p class="note">아직 반복 루틴이 없습니다. 반복은 Pickle에게 "매주 월요일 ..."처럼 부탁해 만들 수 있습니다.</p>
+            <p class="note">{tr.noRoutines}</p>
           )}
         </section>
       )}
@@ -175,8 +176,8 @@ export function EventDialog(p: {
   );
 }
 
-const STATUS: [Status, string][] = [["todo", "할 일"], ["doing", "진행 중"], ["done", "완료"]];
-const PRIORITY: [Priority | "", string][] = [["", "없음"], ["high", "높음"], ["normal", "보통"], ["low", "낮음"]];
+const STATUS: Status[] = ["todo", "doing", "done"];
+const PRIORITY: (Priority | "")[] = ["", "high", "normal", "low"];
 
 export function TaskDialog(p: { task: Task; onSave: (t: Task) => void; onClose: () => void }) {
   const [t, setT] = useState<Task>(p.task);
@@ -193,34 +194,34 @@ export function TaskDialog(p: { task: Task; onSave: (t: Task) => void; onClose: 
   };
 
   return (
-    <Modal title="할 일 편집" onClose={p.onClose}>
+    <Modal title={tr.editTask} onClose={p.onClose}>
       <form onSubmit={submit}>
-        <Field id="tk-title" label="제목">
+        <Field id="tk-title" label={tr.title}>
           <input id="tk-title" value={t.title} onInput={(e) => setT({ ...t, title: e.currentTarget.value })} autoFocus />
         </Field>
         <div class="row">
-          <Field id="tk-status" label="상태">
+          <Field id="tk-status" label={tr.status}>
             <select id="tk-status" value={t.status} onChange={(e) => setT({ ...t, status: e.currentTarget.value as Status })}>
-              {STATUS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              {STATUS.map((v) => <option key={v} value={v}>{tr.statusNames[v]}</option>)}
             </select>
           </Field>
-          <Field id="tk-pri" label="중요도">
+          <Field id="tk-pri" label={tr.priority}>
             <select id="tk-pri" value={t.priority ?? ""} onChange={(e) => setOpt("priority", e.currentTarget.value)}>
-              {PRIORITY.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              {PRIORITY.map((v) => <option key={v} value={v}>{tr.priorityNames[v]}</option>)}
             </select>
           </Field>
-          <Field id="tk-due" label="마감일 (비워 두면 없음)">
+          <Field id="tk-due" label={tr.due}>
             <input id="tk-due" type="date" value={t.due ?? ""} onInput={(e) => setOpt("due", e.currentTarget.value)} />
             <DateKo d={t.due ?? ""} />
           </Field>
         </div>
-        <Field id="tk-notes" label="메모">
+        <Field id="tk-notes" label={tr.notes}>
           <textarea id="tk-notes" rows={3} value={t.notes} onInput={(e) => setT({ ...t, notes: e.currentTarget.value })} />
         </Field>
         <div class="actions">
-          <button type="button" class="danger" onClick={() => p.onSave({ ...p.task, deleted: true })}>삭제</button>
-          <button type="button" onClick={p.onClose}>취소</button>
-          <button type="submit" class="primary">저장</button>
+          <button type="button" class="danger" onClick={() => p.onSave({ ...p.task, deleted: true })}>{tr.delete}</button>
+          <button type="button" onClick={p.onClose}>{tr.cancel}</button>
+          <button type="submit" class="primary">{tr.save}</button>
         </div>
       </form>
     </Modal>

@@ -2,12 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { AGENT_GUIDE, GUIDE_PATH, needsGuide } from "./agentGuide";
 import { mergeItems, pruneTombstones } from "./merge";
 import {
-  instant,
   nextStamp,
   parseEvents,
   parseTasks,
-  seoulDate,
-  seoulStamp,
   serializeEvents,
   serializeTasks,
   type Event,
@@ -16,6 +13,8 @@ import {
 } from "./model";
 import { EVENTS_DIR, eventPath, partition } from "./partition";
 import { generateUpcoming, serializeUpcoming, UPCOMING_PATH } from "./upcoming";
+import { addDays } from "./ui/dates";
+import { at, dateIn, stampIn } from "./zone";
 
 export type PutResult = { kind: "ok"; sha: string } | { kind: "conflict" };
 
@@ -25,6 +24,8 @@ export interface Remote {
   /** Files (not subdirectories) directly under dir; [] when dir does not exist. */
   list(dir: string): Promise<{ path: string; sha: string }[]>;
   put(path: string, text: string, sha: string | undefined): Promise<PutResult>;
+  /** Checked on every pull: a repo made public after connecting must stop receiving pushes. Rejects when unreachable. */
+  isPrivate?(): Promise<boolean>;
 }
 
 /** %APPDATA%\CalForPickle, paths relative to it. */
@@ -41,6 +42,8 @@ export interface SyncStatus {
   held: string[];
   /** A received updatedAt was more than 10 minutes in the future (§7.1 #2). */
   clockSkew: boolean;
+  /** The last pull found the repo public: pushes are paused until a pull finds it private again. */
+  publicRepo: boolean;
   /** Files (month files, tasks.json) waiting to be pushed, not edits: ten edits in one month count once. */
   unpushed: number;
   error?: string;
@@ -55,18 +58,35 @@ interface Persisted {
 const STATE_PATH = "sync-state.json";
 export const TASKS_PATH = "data/tasks.json";
 const EMPTY = "[]\n";
-const DAY_MS = 86400_000;
 const SKEW_MS = 10 * 60_000;
 const MAX_RETRIES = 3;
+/** Minutes before each automatic push retry while offline; the last one repeats. */
+const RETRY_MIN = [1, 2, 5, 10];
 
-/** True when the most recent 07:00 Seoul has passed since the last pull. Covers on-time, wake from sleep, late boot. */
+/** Runs queued steps one at a time; a rejected step does not block the next. */
+function serial() {
+  let queue: Promise<unknown> = Promise.resolve();
+  return <T>(fn: () => Promise<T>): Promise<T> => {
+    const run = queue.then(fn);
+    queue = run.catch(() => {});
+    return run;
+  };
+}
+
+/** True when the most recent 07:00 local time has passed since the last pull. Covers on-time, wake from sleep, late boot. */
 export function shouldDailyPull(now: Date, lastPullAt: string | undefined): boolean {
-  const today7 = instant(seoulDate(now.getTime())) + 7 * 3600_000;
-  const last7 = now.getTime() >= today7 ? today7 : today7 - DAY_MS;
+  const today = dateIn(now.getTime());
+  const today7 = at(today, "07:00");
+  const last7 = now.getTime() >= today7 ? today7 : at(addDays(today, -1), "07:00");
   return !lastPullAt || Date.parse(lastPullAt) < last7;
 }
 
+/** Drops the time of day from generatedAt but keeps its date and offset: Pickle compares that date with today. */
+const upcomingKey = (text: string) => text.replace(/("generatedAt":\s*"\d{4}-\d\d-\d\d)T[\d:.]+/, "$1");
+
 const isData = (p: string) => p === TASKS_PATH || p.startsWith(EVENTS_DIR + "/");
+// Same shape as allowed_file in github.rs: anything else in the repo is ignored instead of failing the pull.
+const isSyncedFile = (p: string) => p === TASKS_PATH || new RegExp(`^${EVENTS_DIR}/\\d{4}-(0[1-9]|1[0-2])\\.json$`).test(p);
 
 export function createSync(opts: {
   remote: Remote;
@@ -82,17 +102,20 @@ export function createSync(opts: {
   let merged = false;
   let offline = false;
   let clockSkew = false;
+  let publicRepo = false;
   let error: string | undefined;
   let upcomingDue = false;
+  let lastUpcoming = ""; // what the last successful PUT sent, without the time of day (see sameUpcoming)
   const held = new Set<string>();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  // Every disk/network step runs through this queue so a push never interleaves with a save or a pull.
-  let queue: Promise<unknown> = Promise.resolve();
-  const enqueue = <T>(fn: () => Promise<T>): Promise<T> => {
-    const run = queue.then(fn);
-    queue = run.catch(() => {});
-    return run;
-  };
+  let failures = 0;
+  let retryAt = 0;
+  // Pull/push run one at a time on `enqueue`. Every local write runs on `disk` instead, so a hung request
+  // never delays a save; `disk` is serial because the Rust side writes through a fixed "<name>.tmp".
+  const enqueue = serial();
+  const disk = serial();
+  // Paths saved after a push of them started: that push sent older text, so they stay dirty.
+  const edited = new Set<string>();
 
   /** Moves paths to the end of the push order, keeping their relative order. */
   const markDirty = (paths: string[]) => {
@@ -108,7 +131,9 @@ export function createSync(opts: {
   const textFor = (path: string, items: Item[] | undefined) =>
     path === TASKS_PATH ? serializeTasks((items ?? []) as Task[]) : serializeEvents((items ?? []) as Event[]);
 
-  const persist = () => local.write(STATE_PATH, JSON.stringify(st, null, 2) + "\n");
+  const persist = () => disk(() => local.write(STATE_PATH, JSON.stringify(st, null, 2) + "\n"));
+  /** Writes a data file from memory as it is when the write runs, so queued writes always end at the latest state. */
+  const writeData = (path: string) => disk(() => local.write(path, textFor(path, byPath().get(path))));
 
   /** Merge fetched remote files into state, rewrite affected local files, and recompute dirty for each. */
   async function absorb(fetched: { path: string; text: string; sha: string }[]) {
@@ -137,13 +162,15 @@ export function createSync(opts: {
     tasks = pruneTombstones(mergeItems(tasks, incoming.tasks), now());
     const after = byPath();
 
+    // Dirty bookkeeping finishes before the first await: a save landing mid-absorb must not be judged against `after`.
     const newlyDirty: { path: string; gain: number }[] = [];
+    const changed: string[] = [];
     for (const path of new Set([...before.keys(), ...after.keys(), ...ok.keys()])) {
       const text = textFor(path, after.get(path));
       const localChanged = text !== textFor(path, before.get(path));
       if (localChanged) {
         merged = true;
-        await local.write(path, text);
+        changed.push(path);
       }
       const remoteText = ok.get(path);
       if (remoteText === undefined ? localChanged : text !== remoteText) {
@@ -155,12 +182,14 @@ export function createSync(opts: {
     }
     // Files gaining items go first, so a month move never leaves the item missing remotely (§7.1 #3).
     markDirty(newlyDirty.sort((a, b) => b.gain - a.gain).map((d) => d.path));
+    for (const path of changed) await writeData(path);
   }
 
   async function pullNow() {
     clockSkew = false;
+    if (remote.isPrivate) publicRepo = !(await remote.isPrivate());
     const listing = [...(await remote.list("data")), ...(await remote.list(EVENTS_DIR))].filter((f) =>
-      isData(f.path) && f.path.endsWith(".json"),
+      isSyncedFile(f.path),
     );
     const fetched = [];
     for (const f of listing) {
@@ -175,17 +204,17 @@ export function createSync(opts: {
     const missing = [...byPath().keys()].filter((p) => !remotePaths.has(p));
     for (const p of missing) {
       delete st.files[p];
-      await local.write(p, textFor(p, byPath().get(p)));
+      await writeData(p);
     }
     markDirty(missing.filter((p) => !st.dirty.includes(p)));
 
     const guide = await remote.get(GUIDE_PATH);
     if (guide) st.files[GUIDE_PATH] = guide.sha;
     if (needsGuide(guide?.text)) {
-      await local.write(GUIDE_PATH, AGENT_GUIDE);
+      await disk(() => local.write(GUIDE_PATH, AGENT_GUIDE));
       markDirty([GUIDE_PATH]);
     }
-    st.lastPullAt = seoulStamp(now().getTime());
+    st.lastPullAt = stampIn(now().getTime());
     upcomingDue = true;
   }
 
@@ -210,20 +239,24 @@ export function createSync(opts: {
 
   async function pushNow() {
     clearTimeout(timer);
+    if (publicRepo) return; // edits stay dirty; the next pull that finds the repo private sends them
     const tried = new Set<string>();
     let pushed = false;
     for (let path; (path = st.dirty.find((p) => !tried.has(p) && !held.has(p))); ) {
       tried.add(path);
       const p = path;
+      edited.delete(p);
       if (await putPath(p, async () => (await local.read(p)) ?? EMPTY)) {
-        st.dirty = st.dirty.filter((d) => d !== p);
+        if (!edited.has(p)) st.dirty = st.dirty.filter((d) => d !== p);
         pushed = true;
       }
     }
     if (pushed || upcomingDue) {
       const text = serializeUpcoming(generateUpcoming(events, tasks, now()));
-      await local.write(UPCOMING_PATH, text);
-      if (await putPath(UPCOMING_PATH, async () => text)) upcomingDue = false;
+      await disk(() => local.write(UPCOMING_PATH, text));
+      const key = upcomingKey(text);
+      if (key === lastUpcoming) upcomingDue = false; // only the clock changed: skip a commit per sync
+      else if (await putPath(UPCOMING_PATH, async () => text)) (upcomingDue = false), (lastUpcoming = key);
     }
   }
 
@@ -233,10 +266,12 @@ export function createSync(opts: {
       try {
         await fn();
         offline = false;
+        failures = 0;
         if (!held.size) error = undefined;
       } catch (e) {
         offline = true;
         error = String(e);
+        retryAt = now().getTime() + RETRY_MIN[Math.min(failures++, RETRY_MIN.length - 1)] * 60_000;
       } finally {
         await persist();
         onChange();
@@ -246,12 +281,11 @@ export function createSync(opts: {
   async function save(paths: string[]) {
     merged = false;
     onChange();
-    await enqueue(async () => {
-      const m = byPath();
-      for (const p of paths) await local.write(p, textFor(p, m.get(p)));
-      markDirty(paths);
-      await persist();
-    });
+    for (const p of paths) await writeData(p);
+    // Dirty only after the write: a push reading the file earlier would otherwise send the old text and clear it.
+    markDirty(paths);
+    for (const p of paths) edited.add(p);
+    await persist();
     clearTimeout(timer);
     timer = setTimeout(() => void push(), debounceMs);
   }
@@ -262,13 +296,27 @@ export function createSync(opts: {
 
   return {
     async load() {
-      const s = await local.read(STATE_PATH);
-      if (s) st = JSON.parse(s);
+      try {
+        const s = await local.read(STATE_PATH);
+        if (s) st = JSON.parse(s);
+      } catch {
+        // Start from empty state: the next pull refetches every file and the merge marks unpushed edits dirty again.
+      }
       const all: Event[] = [];
       const paths = (await local.list(EVENTS_DIR)).filter((p) => p.endsWith(".json")); // skip leftover .tmp
-      for (const p of paths) all.push(...parseEvents((await local.read(p)) ?? EMPTY));
+      for (const p of [...paths, TASKS_PATH]) {
+        try {
+          const text = (await local.read(p)) ?? EMPTY;
+          if (p === TASKS_PATH) tasks = parseTasks(text);
+          else all.push(...parseEvents(text));
+        } catch (e) {
+          // Held like a broken remote file: never pushed. Forgetting the sha makes the next pull refetch it.
+          held.add(p);
+          delete st.files[p];
+          error = `${p}: ${(e as Error).message}`;
+        }
+      }
       events = mergeItems(all);
-      tasks = parseTasks((await local.read(TASKS_PATH)) ?? EMPTY);
     },
     events: () => events,
     tasks: () => tasks,
@@ -280,7 +328,7 @@ export function createSync(opts: {
           : merged
             ? "merged"
             : "done";
-      return { state, held: [...held], clockSkew, unpushed: st.dirty.length, error };
+      return { state, held: [...held], clockSkew, publicRepo, unpushed: st.dirty.length, error };
     },
     /** Create, edit or soft-delete (deleted: true) an event. Memory updates now; push follows the debounce. */
     saveEvent(e: Event) {
@@ -300,10 +348,14 @@ export function createSync(opts: {
     pull,
     push,
     syncNow,
-    /** Checks the 07:00 condition every minute. Returns a stop function. */
+    /** Every minute: the 07:00 pull, or while offline a push retry after RETRY_MIN. Returns a stop function. */
     start() {
       const tick = () => {
         if (shouldDailyPull(now(), st.lastPullAt)) void syncNow();
+        else if (offline && st.dirty.length && now().getTime() >= retryAt) {
+          retryAt = Infinity; // one retry in flight; net() sets the next slot if it fails
+          void push();
+        }
       };
       tick();
       const id = setInterval(tick, 60_000);
@@ -319,6 +371,7 @@ export function tauriRemote(owner: string, repo: string): Remote {
     get: (path) => invoke("gh_get", { owner, repo, path }),
     list: (path) => invoke("gh_list", { owner, repo, path }),
     put: (path, text, sha) => invoke("gh_put", { owner, repo, path, text, sha: sha ?? null }),
+    isPrivate: () => invoke("gh_private", { owner, repo, token: null }),
   };
 }
 

@@ -5,9 +5,10 @@ Pickle이 읽고 쓰는 Windows용 미니멀 데스크탑 캘린더. (한국어�
 
 ## English
 
-- Lives on the desktop (optional pin keeps it under every window), sits in the tray, no taskbar button.
+- Lives on the desktop: pinned, it sits under the desktop icons, above the wallpaper. Tray only, no taskbar button.
 - Your events and tasks are JSON files in **your own private GitHub repo** (`data/events/YYYY-MM.json`, `data/tasks.json`). The app syncs through the GitHub Contents API; Pickle (or any agent) clones the same repo and commits to `main`.
 - Edits save locally at once and push 15 s after the last change. Pulls happen once a day after 07:00 and when you press "Sync now".
+- Times follow this PC's Windows time zone (read when the app starts). All-day events show on the same date everywhere.
 - Merging is per item id; the later `updatedAt` wins. Deletes are soft (`"deleted": true`).
 - Works offline with no GitHub at all; data then stays on this PC only.
 
@@ -29,10 +30,10 @@ read AGENT_GUIDE.md in that repo and follow its write procedure exactly.
 - **Double-click a day** (or Enter on it): that day's checklist. One line per item, Enter for the next line, Esc saves and leaves.
 - **"+N"** in a full day opens the same checklist with every line.
 - **Click an event** to edit or delete it. A repeating event asks before deleting every occurrence.
-- **Routine** (루틴; the app's labels are Korean): a new event (title and dates). Below it, every repeating routine; click one to edit it. Repeats are made by Pickle ("every Monday ...").
-- **☰** shows the memo panel (tasks without a day). **Gear**: GitHub connection, start with Windows, background opacity, keyboard shortcuts.
-- **Pin** (header, left of the gear): pinned, the calendar stays under every window even when you click it, and it can't be moved or resized. Unpinned, it is an ordinary window you can move and resize.
-- **×** hides to the tray. To quit, use the tray icon menu → 종료 (Quit; it pushes pending edits first).
+- **Routine**: a new event (title and dates). Below it, every repeating routine; click one to edit it. Repeats are made by Pickle ("every Monday ...").
+- **☰** shows the memo panel (tasks without a day). **Gear**: language (한국어 / English; English shows US federal holidays, Korean shows Korean ones), GitHub connection, start with Windows, background opacity, keyboard shortcuts.
+- **Pin** (header, left of the gear): pinned, the calendar sits on the desktop under the icons, fixed in place; wherever no icon covers it, clicks work as usual (buttons, double-clicking a day, typing), while hovering and dragging don't. Spots covered by an icon don't respond, so place it on empty desktop. Unpinned, it is only for moving and resizing (no editing). The whole window must fit on one monitor to pin.
+- **×** hides to the tray. To quit, use the tray icon menu → Quit (it pushes pending edits first).
 
 ### Where your data lives
 
@@ -56,9 +57,10 @@ Needs Rust and the [Tauri 2 prerequisites](https://tauri.app/start/prerequisites
 
 ## 한국어
 
-- 바탕화면에 붙어 있고(선택: 핀 고정), 트레이에만 보이며 작업 표시줄 버튼은 없다.
+- 바탕화면에 붙어 있고(핀을 켜면 아이콘 뒤, 배경화면 앞), 트레이에만 보이며 작업 표시줄 버튼은 없다.
 - 일정과 할 일은 **내 private GitHub 저장소**의 JSON 파일이다(`data/events/YYYY-MM.json`, `data/tasks.json`). 앱은 GitHub Contents API로 동기화하고, Pickle(또는 다른 에이전트)은 같은 저장소를 clone해서 `main`에 commit한다.
 - 편집은 바로 로컬에 저장되고, 마지막 수정 15초 뒤 올린다. 받아오기는 매일 07:00 이후 한 번과 "지금 동기화" 버튼.
+- 시각은 이 PC의 Windows 시간대를 따른다(앱을 켤 때 읽음). 종일 일정은 어디서나 같은 날짜에 보인다.
 - 병합은 항목 id 단위, `updatedAt`이 늦은 쪽이 이긴다. 삭제는 `"deleted": true` 표시.
 - GitHub 없이도 쓸 수 있다. 그때 데이터는 이 PC에만 있다.
 
@@ -81,8 +83,8 @@ Needs Rust and the [Tauri 2 prerequisites](https://tauri.app/start/prerequisites
 - 칸이 차면 보이는 **"+N개"**를 누르면 같은 체크리스트가 전부 열린다.
 - **일정을 누르면** 편집·삭제. 반복 일정은 모든 회차를 지우기 전에 한 번 더 묻는다.
 - **루틴**: 새 일정(제목과 날짜). 그 아래에 반복 루틴 목록이 있고, 누르면 편집 창이 열린다. 반복은 Pickle에게 부탁해 만든다("매주 월요일 ...").
-- **☰**: 메모 패널(날짜 없는 할 일). **톱니바퀴**: GitHub 연결, Windows 시작 시 실행, 배경 불투명도, 단축키.
-- **핀**(머리줄, 톱니바퀴 왼쪽): 켜면 눌러도 다른 창 뒤에 그대로 있고, 옮기거나 크기를 바꿀 수 없다. 끄면 옮기고 크기를 바꿀 수 있는 보통 창이다.
+- **☰**: 메모 패널(날짜 없는 할 일). **톱니바퀴**: 언어(한국어 / English, English는 미국 연방 공휴일, 한국어는 한국 공휴일), GitHub 연결, Windows 시작 시 실행, 배경 불투명도, 단축키.
+- **핀**(머리줄, 톱니바퀴 왼쪽): 켜면 바탕화면 아이콘 뒤에 자리가 고정된다. 아이콘이 없는 자리는 평소처럼 누를 수 있다(버튼, 날짜 더블클릭, 입력). 마우스를 올렸을 때의 표시와 끌기는 안 된다. 아이콘과 겹친 자리는 눌리지 않으니 빈 바탕화면에 두자. 끄면 옮기기와 크기 조절만 된다(편집 안 됨). 창 전체가 한 모니터 안에 있어야 고정된다.
 - **×**는 트레이로 숨긴다. 끝내려면 트레이 아이콘 메뉴 → 종료(올리지 않은 변경을 먼저 올린다).
 
 ### 데이터 위치

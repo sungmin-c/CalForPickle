@@ -58,9 +58,9 @@ describe("3. event moved to another month", () => {
     expect(files.get("data/events/2026-12.json")).toEqual([moved]);
   });
 
-  it("uses the Seoul month even when start is written in UTC", () => {
+  it("uses the month written in start, whatever its offset (Q17)", () => {
     const e = ev({ id: "z", start: "2026-11-30T16:00:00Z", end: "2026-11-30T17:00:00Z" });
-    expect([...partition([e]).keys()]).toEqual(["data/events/2026-12.json"]);
+    expect([...partition([e]).keys()]).toEqual(["data/events/2026-11.json"]);
   });
 });
 

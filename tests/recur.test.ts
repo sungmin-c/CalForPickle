@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeRule, expand, parseRule } from "../src/recur";
+import { describeRule, expand, hasEnded, parseRule, routineList } from "../src/recur";
 import { addDays } from "../src/ui/dates";
 import { ev } from "./fixtures";
 
@@ -77,5 +77,39 @@ describe("recurrence expansion", () => {
     expect(describeRule("FREQ=YEARLY;BYMONTH=1;BYMONTHDAY=12;UNTIL=20301231", "2026-01-12")).toBe("매년 1월 12일, 2030-12-31까지");
     expect(describeRule("FREQ=WEEKLY;INTERVAL=2", "2026-11-03")).toBe("2주마다 화요일");
     expect(describeRule("FREQ=DAILY", "2026-11-03")).toBe("매일");
+  });
+});
+
+describe("hasEnded (routine list)", () => {
+  const today = "2026-11-17";
+  it("UNTIL in the past: ended; UNTIL today or later: not ended", () => {
+    expect(hasEnded(allDay("2025-09-29", "FREQ=WEEKLY;BYDAY=MO;UNTIL=20251201"), today)).toBe(true);
+    expect(hasEnded(allDay("2025-09-29", "FREQ=WEEKLY;BYDAY=TU;UNTIL=20261117"), today)).toBe(false);
+    expect(hasEnded(allDay("2025-09-29", "FREQ=WEEKLY;BYDAY=MO;UNTIL=20261201"), today)).toBe(false);
+  });
+  it("COUNT used up in the past: ended; COUNT with occurrences left: not ended", () => {
+    expect(hasEnded(allDay("2025-09-29", "FREQ=WEEKLY;COUNT=10"), today)).toBe(true);
+    expect(hasEnded(allDay("2026-11-02", "FREQ=WEEKLY;COUNT=10"), today)).toBe(false);
+  });
+  it("no end: never ended", () => {
+    expect(hasEnded(allDay("2025-09-29", "FREQ=WEEKLY;BYDAY=MO"), today)).toBe(false);
+  });
+});
+
+describe("routineList (hasEnded once per routine)", () => {
+  const today = "2026-11-17";
+  const r = (id: string, title: string, recurrence: string | undefined, deleted = false) =>
+    ({ ...allDay("2025-09-29", "FREQ=WEEKLY;BYDAY=MO"), id, title, recurrence, deleted });
+  const events = [
+    r("done", "가", "FREQ=WEEKLY;BYDAY=MO;UNTIL=20251201"),
+    r("b", "나", "FREQ=WEEKLY;BYDAY=MO"),
+    r("a", "가", "FREQ=WEEKLY;BYDAY=MO"),
+    r("gone", "삭제", "FREQ=WEEKLY", true),
+    r("once", "한번", undefined),
+  ];
+  it("keeps only live recurring events, running ones first, then by title; ended ids in a set", () => {
+    const { routines, ended } = routineList(events, today);
+    expect(routines.map((e) => e.id)).toEqual(["a", "b", "done"]);
+    expect([...ended]).toEqual(["done"]);
   });
 });

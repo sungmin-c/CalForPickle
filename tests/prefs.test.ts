@@ -1,13 +1,13 @@
 // @ts-expect-error no @types/node (same as vite.config.ts); Vitest empties CSS imports, even ?raw
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { fitsOnScreen, MIN_OPACITY, normalizeSettings } from "../src/ui/prefs";
+import { fitsOnScreen, insideOneScreen, MIN_OPACITY, normalizeSettings } from "../src/ui/prefs";
 
 const css: string = readFileSync(new URL("../src/ui/app.css", import.meta.url), "utf8");
 
 describe("normalizeSettings", () => {
   it("gives defaults for missing, broken or non-object input", () => {
-    const d = { alwaysBottom: false, autostart: false, opacity: 100 };
+    const d = { alwaysBottom: false, autostart: false, lang: "ko", opacity: 100 };
     expect(normalizeSettings(null)).toEqual(d);
     expect(normalizeSettings("{not json")).toEqual(d);
     expect(normalizeSettings("[1,2]")).toEqual(d);
@@ -16,11 +16,11 @@ describe("normalizeSettings", () => {
 
   it("keeps valid values and drops unknown keys", () => {
     const s = normalizeSettings(JSON.stringify({
-      owner: "me", repo: "cal", alwaysBottom: true, autostart: true, opacity: 85, memoOpen: true,
+      owner: "me", repo: "cal", alwaysBottom: true, autostart: true, lang: "en", opacity: 85, memoOpen: true,
       window: { x: -10, y: 20, width: 900, height: 600 }, junk: 1,
     }));
     expect(s).toEqual({
-      owner: "me", repo: "cal", alwaysBottom: true, autostart: true, opacity: 85, memoOpen: true,
+      owner: "me", repo: "cal", alwaysBottom: true, autostart: true, lang: "en", opacity: 85, memoOpen: true,
       window: { x: -10, y: 20, width: 900, height: 600 },
     });
   });
@@ -33,6 +33,7 @@ describe("normalizeSettings", () => {
     expect(normalizeSettings('{"opacity": "80"}').opacity).toBe(100);
     expect(normalizeSettings('{"autostart": "no", "alwaysBottom": 1}')).toMatchObject({ autostart: false, alwaysBottom: false });
     expect(normalizeSettings('{"owner": 5}').owner).toBeUndefined();
+    expect(normalizeSettings('{"lang": "fr"}').lang).toBe("ko");
     expect(normalizeSettings('{"memoOpen": "yes"}').memoOpen).toBeUndefined();
   });
 
@@ -98,6 +99,13 @@ describe("translucent mode colours", () => {
       for (const c of ["--sun", "--sat"])
         for (const bg of ["--bg", "--tone"]) expect(ratio(t[c], t[bg]), `${c} on ${bg}`).toBeGreaterThanOrEqual(4.5);
   });
+
+  it("colour-dot outline reaches 3:1 on --bg and on --tone, in both themes (a dark user colour must not melt into the chip)", () => {
+    const outline = css.match(/\.dot\s*\{[^}]*box-shadow:[^;}]*var\((--[\w-]+)\)/)?.[1];
+    expect(outline).toBeDefined();
+    for (const t of [light, dark])
+      for (const bg of ["--bg", "--tone"]) expect(ratio(t[outline!], t[bg]), `${outline} on ${bg}`).toBeGreaterThanOrEqual(3);
+  });
 });
 
 function tokens(block: string): Record<string, string> {
@@ -105,3 +113,23 @@ function tokens(block: string): Record<string, string> {
   const body = root.slice(0, root.indexOf("}"));
   return Object.fromEntries([...body.matchAll(/(--[\w-]+):\s*(#[0-9a-f]{6})/gi)].map((m) => [m[1], m[2]]));
 }
+
+describe("insideOneScreen", () => {
+  const screens = [{ x: -1920, y: 0, width: 1920, height: 1080 }, { x: 0, y: 0, width: 2560, height: 1440 }];
+  const win = (x: number, y: number, width = 1100, height = 680) => ({ x, y, width, height });
+
+  it("accepts a window wholly on one monitor, edges included", () => {
+    expect(insideOneScreen(win(100, 100), screens)).toBe(true);
+    expect(insideOneScreen(win(-1920, 0, 1920, 1080), screens)).toBe(true); // exactly the left monitor
+    expect(insideOneScreen(win(1460, 760), screens)).toBe(true); // touching the right and bottom edges
+  });
+
+  it("rejects a window sticking out of every monitor, or across two", () => {
+    expect(insideOneScreen(win(2000, 100), screens)).toBe(false); // past the right edge
+    expect(insideOneScreen(win(100, -1), screens)).toBe(false); // above the top
+    expect(insideOneScreen(win(100, 800), screens)).toBe(false); // below the bottom
+    expect(insideOneScreen(win(-500, 100), screens)).toBe(false); // across both monitors
+    expect(insideOneScreen(win(0, 0, 2600, 680), screens)).toBe(false); // wider than the monitor
+    expect(insideOneScreen(win(100, 100), [])).toBe(false);
+  });
+});

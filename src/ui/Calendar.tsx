@@ -1,28 +1,19 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { Event, Task } from "../model";
+import { holidayName, usHolidayName } from "../holidays";
+import { lang, tr, type Title } from "../i18n";
 import { expand } from "../recur";
-import { addDays, addMonths, byTime, monthDays, onDay, timeLabel, weekday, weekDays } from "./dates";
+import { addDays, addMonths, byTime, monthDays, onDay, timeLabel, weekDays } from "./dates";
 import { commitDay, dayList, fitRows, type Draft } from "./dayList";
 import { Dot } from "./icons";
 
 export type View = "month" | "week";
-const DOW = ["일", "월", "화", "수", "목", "금", "토"];
-
-const md = (d: string) => `${Number(d.slice(5, 7))}월 ${Number(d.slice(8))}일`;
-
-export function calendarTitle(view: View, sel: string): string {
-  const year = `${sel.slice(0, 4)}년`;
-  if (view === "month") return `${year} ${Number(sel.slice(5, 7))}월`;
-  const [a, b] = [weekDays(sel)[0], weekDays(sel)[6]];
-  return `${a.slice(0, 4)}년 ${md(a)} ~ ${a.slice(5, 7) === b.slice(5, 7) ? `${Number(b.slice(8))}일` : md(b)}`;
+/** Header title in parts; `short` is the narrow-header form ("11.15 – 21", English also "Nov 2026"). */
+export function calendarTitle(view: View, sel: string): Title {
+  return view === "month" ? tr.monthTitle(sel) : tr.weekTitle(weekDays(sel)[0], weekDays(sel)[6]);
 }
 
-/** Week title for a narrow header: "11.15 – 21", or "11.30 – 12.6" when the week crosses a month. */
-export function weekShortTitle(sel: string): string {
-  const [a, b] = [weekDays(sel)[0], weekDays(sel)[6]];
-  const dot = (d: string) => `${Number(d.slice(5, 7))}.${Number(d.slice(8))}`;
-  return `${dot(a)} – ${a.slice(5, 7) === b.slice(5, 7) ? Number(b.slice(8)) : dot(b)}`;
-}
+export const titleText = (t: Title) => (tr.yearFirst ? t.year + t.main : t.main + t.year);
 
 /** Step for the prev/next buttons and PageUp/PageDown. */
 export const shift = (view: View, d: string, n: number) => (view === "month" ? addMonths(d, n) : addDays(d, 7 * n));
@@ -39,7 +30,15 @@ export function Calendar(p: {
 }) {
   const days = p.view === "month" ? monthDays(p.sel) : weekDays(p.sel);
   const month = p.sel.slice(0, 7);
-  const shownEvents = expand(p.events, days[0], addDays(days[days.length - 1], 1));
+  // One broken event must not blank the whole calendar: skip it and say which.
+  const shownEvents = p.events.flatMap((e) => {
+    try {
+      return expand([e], days[0], addDays(days[days.length - 1], 1));
+    } catch (err) {
+      console.warn(`skipped event ${e.id}`, err);
+      return [];
+    }
+  });
   const refocus = useRef(false);
   // The cell being edited and which line gets the caret ("end" = a new blank line at the bottom).
   const [editing, setEditing] = useState<{ day: string; at: number | "end" } | null>(null);
@@ -58,9 +57,17 @@ export function Calendar(p: {
     setFit(next);
   });
   useEffect(() => {
-    const ro = new ResizeObserver(() => setFit(null));
+    // Resizing fires every frame (window drag, the memo panel's 0.2s grid transition): re-measure once it stops.
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const ro = new ResizeObserver(() => {
+      clearTimeout(t);
+      t = setTimeout(() => setFit(null), 100);
+    });
     ro.observe(grid.current!);
-    return () => ro.disconnect();
+    return () => {
+      ro.disconnect();
+      clearTimeout(t);
+    };
   }, []);
 
   // Keyboard moves the selection; focus follows it right after render (roving tabindex).
@@ -90,9 +97,9 @@ export function Calendar(p: {
   };
 
   return (
-    <section class={`cal ${p.view}`} aria-label={`달력, ${calendarTitle(p.view, p.sel)}`}>
+    <section class={`cal ${p.view}`} aria-label={tr.calendar(titleText(calendarTitle(p.view, p.sel)))}>
       <div class="dow" aria-hidden="true">
-        {DOW.map((d, i) => <span key={d} class={i === 0 ? "sun" : i === 6 ? "sat" : undefined}>{d}</span>)}
+        {tr.dow.map((d, i) => <span key={d} class={i === 0 ? "sun" : i === 6 ? "sat" : undefined}>{d}</span>)}
       </div>
       <div class="grid" ref={grid}>
         {days.map((d, i) => {
@@ -103,7 +110,8 @@ export function Calendar(p: {
           const edit = editing?.day === d ? editing : null;
           // The memo grows away from the calendar's edges: right columns open leftward, bottom rows open upward.
           const rows = days.length / 7;
-          const cls = ["cell", active && "sel", d === p.today && "today", p.view === "month" && d.slice(0, 7) !== month && "out",
+          const holiday = lang === "en" ? usHolidayName(d) : holidayName(d);
+          const cls = ["cell", active && "sel", d === p.today && "today", holiday && "hol", p.view === "month" && d.slice(0, 7) !== month && "out",
             edit && "pop", i % 7 === 0 && "c0", i % 7 >= 5 && "east", i % 7 === 6 && "c6", rows > 2 && i >= days.length - 14 && "south",
             i >= days.length - 7 && "last"];
           const chip = (e: Event, t: number) => (
@@ -112,7 +120,7 @@ export function Calendar(p: {
                 onClick={(x) => (x.stopPropagation(), p.onOpen(e))} onDblClick={(x) => x.stopPropagation()}>
                 <Dot color={e.color} />
                 {!e.allDay && <time>{timeLabel(e)}</time>}
-                {e.title || "(제목 없음)"}
+                {e.title || tr.untitled}
               </button>
             </li>
           );
@@ -120,15 +128,17 @@ export function Calendar(p: {
           // Events, then tasks (open before done): what doesn't fit is cut from the end, so done tasks go first.
           const items = [...list.map((e) => chip(e, tab)), ...lines.map((t, i) => (
             <li key={`t:${t.id}`} data-i={i} class={t.status === "done" ? "line done" : "line"}>
-              <input type="checkbox" tabIndex={tab} checked={t.status === "done"} aria-label={`${t.title || "제목 없음"} 완료`}
-                onClick={(x) => x.stopPropagation()} onDblClick={(x) => x.stopPropagation()}
-                onChange={() => p.onSaveTasks([{ ...t, status: t.status === "done" ? "todo" : "done" }])} />
+              {/* Handlers on the label: a click on its padding must not reach the cell's double-click either. */}
+              <label class="hit" onClick={(x) => x.stopPropagation()} onDblClick={(x) => x.stopPropagation()}>
+                <input type="checkbox" tabIndex={tab} checked={t.status === "done"} aria-label={tr.doneLabel(t.title)}
+                  onChange={() => p.onSaveTasks([{ ...t, status: t.status === "done" ? "todo" : "done" }])} />
+              </label>
               <Dot color={t.color} />
               <span>{t.title}</span>
             </li>
           ))];
           const n = fit?.[d] ?? items.length;
-          const label = `${md(d)} ${DOW[weekday(d)]}요일${d === p.today ? ", 오늘" : ""}, 일정 ${list.length ? `${list.length}개` : "없음"}${lines.length ? `, 할 일 ${lines.length}개` : ""}`;
+          const label = tr.dayLabel(d, d === p.today, holiday, list.length, lines.length);
           return (
             // Single click does nothing (session 9); double click opens the memo. Enter on the day button is the keyboard equivalent.
             <div key={d} class={cls.filter(Boolean).join(" ")}
@@ -140,17 +150,20 @@ export function Calendar(p: {
                 const li = (x.target as HTMLElement).closest<HTMLElement>("[data-i]");
                 setEditing({ day: d, at: li ? Number(li.dataset.i) : "end" });
               }}>
-              <button type="button" class="day" data-day={d} tabIndex={tab} aria-label={label}
-                aria-current={d === p.today ? "date" : undefined} onKeyDown={(e) => onKey(e, d)}>
-                {p.view === "week" ? `${Number(d.slice(8))} ${DOW[weekday(d)]}` : Number(d.slice(8))}
-              </button>
+              <div class="dayrow">
+                <button type="button" class="day" data-day={d} tabIndex={tab} aria-label={label}
+                  aria-current={d === p.today ? "date" : undefined} onKeyDown={(e) => onKey(e, d)}>
+                  {p.view === "week" ? tr.weekDay(d) : Number(d.slice(8))}
+                </button>
+                {holiday && <span class="holiday" aria-hidden="true" title={holiday}>{holiday.replace(/\s*\(.*\)/, "")}</span>}
+              </div>
               <ul class="items" data-items={d}>
                 {items.slice(0, n)}
                 {n < items.length && (
                   <li>
-                    <button type="button" class="more" tabIndex={tab} aria-label={`${md(d)} 일정·할 일 ${items.length - n}개 더 보기 (메모 열기)`}
+                    <button type="button" class="more" tabIndex={tab} aria-label={tr.moreLabel(d, items.length - n)}
                       onClick={(x) => (x.stopPropagation(), open())} onDblClick={(x) => x.stopPropagation()}>
-                      +{items.length - n}개
+                      {tr.more(items.length - n)}
                     </button>
                   </li>
                 )}
@@ -158,7 +171,7 @@ export function Calendar(p: {
               {edit && (
                 // Not a dialog: the rest of the calendar stays live, and leaving the memo saves it like leaving the lines did.
                 <div class="memo">
-                  <p class="memo-day" aria-hidden="true">{md(d)} {DOW[weekday(d)]}요일</p>
+                  <p class="memo-day" aria-hidden="true">{tr.dayHeading(d)}</p>
                   {list.length > 0 && <ul>{list.map((e) => chip(e, -1))}</ul>}
                   <DayEditor key={d} day={d} tasks={lines} at={edit.at}
                     onDone={(drafts, refocusDay) => {
@@ -251,9 +264,11 @@ function DayEditor(p: { day: string; tasks: Task[]; at: number | "end"; onDone: 
       onFocusOut={(ev) => !box.current?.contains(ev.relatedTarget as Node | null) && finish(false)}>
       {rows.map((r, i) => (
         <li key={r.id} class={r.done ? "done" : undefined}>
-          <input type="checkbox" tabIndex={-1} checked={r.done} aria-label={`${r.title || "빈 줄"} 완료`}
-            onChange={() => patch(i, { done: !r.done })} />
-          <input type="text" value={r.title} aria-label={`${md(p.day)} 할 일 ${i + 1}번째 줄`}
+          <label class="hit">
+            <input type="checkbox" tabIndex={-1} checked={r.done} aria-label={tr.doneLabel(r.title || tr.blankLine)}
+              onChange={() => patch(i, { done: !r.done })} />
+          </label>
+          <input type="text" value={r.title} aria-label={tr.lineLabel(p.day, i + 1)}
             onInput={(ev) => patch(i, { title: ev.currentTarget.value })}
             onKeyDown={(ev) => onKey(ev, i)} onPaste={(ev) => onPaste(ev, i)} />
         </li>

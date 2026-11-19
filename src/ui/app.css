@@ -50,13 +50,15 @@ button.danger { color: var(--accent); border-color: var(--accent); }
 button.danger:hover { background: transparent; text-decoration: underline; } /* accent on --tone is 4.39:1 in light */
 button.icon { width: 32px; padding: 0; display: inline-grid; place-items: center; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Pinned, a forwarded click calls focus() from script, which counts as keyboard focus and would ring every clicked control. */
+.app.pinned :focus-visible { outline: none; }
 input, select, textarea {
   min-height: 32px; padding: 4px 10px; border: 1px solid var(--strong); border-radius: 8px; background: var(--bg); width: 100%;
 }
 input[type="range"] { padding: 0; border: 0; background: transparent; accent-color: var(--text); cursor: pointer; }
 input[type="checkbox"] { width: 16px; height: 16px; min-height: 0; margin: 0; accent-color: var(--strong); cursor: pointer; } /* gray: --text glared white when checked in dark; --strong is 3:1+ on --bg */
 label { cursor: default; }
-label.check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+label.check { display: flex; align-items: center; gap: 8px; min-height: 24px; cursor: pointer; }
 
 .app {
   display: flex; flex-direction: column; height: 100%;
@@ -73,7 +75,7 @@ label.check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 
 /* Header */
 /* Always one line, down to the 480px minimum window. Narrowing gives up, in order: status words (icon stays),
-   then the manual sync button and the year, then the long week title (≤560px); the title alone may shrink, with an ellipsis as the last resort. */
+   then the manual sync button and the year, then the long title (≤640px); the title alone may shrink, with an ellipsis as the last resort. */
 .bar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .bar > * { flex-shrink: 0; }
 .bar > .nav { flex-shrink: 1; min-width: 0; }
@@ -92,13 +94,21 @@ label.check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
   .bar .sync-now, .bar .year { display: none; }
   .nav > button:not(.icon), .seg button, .bar > button:not(.icon) { padding: 4px 8px; }
   .bar h1 { margin-left: 4px; }
+  .month .chip time { display: none; }
 }
-.bar .short { display: none; }
+.bar .short, .seg .abbr { display: none; }
+/* 640, not 560: the long week title ("11월 29일 ~ 12월 5일", "Nov 29 – Dec 5") was cut off between 564 and 624px. */
+@media (max-width: 640px) {
+  .bar h1:has(.short) .full, .seg .long { display: none; }
+  .bar .short, .seg .abbr { display: inline; }
+}
 @media (max-width: 560px) {
-  .bar h1:has(.short) .full { display: none; }
-  .bar .short { display: inline; }
   .bar { gap: 4px; }
   .bar button.icon { width: 24px; } /* "11.29 – 12.5" needs this room at the 480px minimum, with the pin button (session 19) */
+}
+/* English "Routine"/"Today" are wider than the Korean words: "11/29 – 12/5" fits at 480px only with tighter gaps. */
+@media (max-width: 520px) {
+  .bar, .nav { gap: 2px; }
 }
 .spacer { flex: 1; }
 .seg { display: inline-flex; }
@@ -126,7 +136,7 @@ label.check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .cal { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; overflow: auto; }
 .dow, .grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .dow { font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
-.dow span { padding: 4px 8px; }
+.dow span { padding: 4px 8px 4px 16px; } /* left edge lines up with the day number (cell 8px + .day 6px + glyph) */
 .grid { grid-auto-rows: minmax(104px, 1fr); }
 .week { grid-template-rows: minmax(0, 1fr); }
 .week .dow { display: none; }
@@ -144,39 +154,46 @@ label.check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .week .day { border-radius: 8px; }
 .dow .sun, .c0 .day { color: var(--sun); }
 .dow .sat, .c6 .day { color: var(--sat); }
-.out .day { color: var(--muted); } /* after the weekend rules: other-month days stay gray */
+.hol .day, .holiday { color: var(--sun); } /* holidays are red like Sundays; the name beside the number says why */
+.out .day { color: var(--muted); } /* after the weekend and holiday rules: other-month days stay gray */
+/* Other-month cells recede: tint plus faded content. Fading (not --muted) because translucent mode turns --muted into the text colour. */
+.out { background: color-mix(in srgb, var(--text) 6%, transparent); }
+.out > * { opacity: 0.55; }
+.dayrow { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.holiday { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Today: accent frame plus a soft halo, the only glow in the app. Raised so the next cells don't paint over the halo. */
 .cell.today { position: relative; z-index: 1; box-shadow: inset 0 0 0 1.5px var(--accent), 0 0 12px color-mix(in srgb, var(--accent) 40%, transparent); }
 .today .day { color: var(--accent); font-weight: 700; } /* after the weekend and other-month rules, so it wins */
 .cell ul { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
+/* Rows are 20px (fitRows); the transparent 2px borders plus margin-block make the click target 24px without growing the row. */
 .chip {
-  display: block; width: 100%; min-height: 20px; padding: 1px 6px; border: 0; border-radius: 4px; text-align: left;
-  font-size: 12px; overflow: hidden; text-overflow: ellipsis;
+  display: block; width: 100%; min-height: 24px; margin-block: -2px; padding: 1px 6px; border: solid transparent; border-width: 2px 0; border-radius: 6px; text-align: left;
+  background-clip: padding-box; font-size: 12px; overflow: hidden; text-overflow: ellipsis;
 }
-.chip.all { background: var(--tone); border: 1px solid var(--line); }
+.chip.all { background: var(--tone); box-shadow: inset 0 0 0 1px var(--line); }
 .sel .chip.all { background: var(--bg); }
-.dot { display: inline-block; width: 7px; height: 7px; margin-right: 4px; border-radius: 50%; vertical-align: middle; box-shadow: 0 0 0 1px var(--line); }
+.dot { display: inline-block; width: 7px; height: 7px; margin-right: 4px; border-radius: 50%; vertical-align: middle; box-shadow: 0 0 0 1px var(--muted); }
 .chip time { color: var(--muted); margin-right: 6px; font-variant-numeric: tabular-nums; }
 .week .chip { white-space: normal; }
 /* One list per cell: events, then the day's tasks (one checkbox per line). No scrolling: rows that don't fit
    give way to "+N개" (dayList.ts fitRows), so chip, task line and "+N개" all keep one 20px row height. */
 .cell .items {
-  flex: 1 1 0; min-height: 0; overflow: hidden; gap: 4px; font-size: 12px;
+  flex: 1 1 0; min-height: 0; overflow: clip; overflow-clip-margin: 2px; gap: 4px; font-size: 12px; /* margin: the first row's 2px click-area overhang stays hit-testable */
   align-content: start; /* .cell ul is a grid; without this, spare height spreads the rows apart */
   grid-auto-rows: max-content; /* li has overflow: hidden, so auto rows would shrink to 0 when the list is full */
 }
-.line { display: flex; align-items: center; min-height: 20px; padding-left: 2px; } /* flex: an inline checkbox would stretch the line box */
+.line { display: flex; align-items: center; min-height: 20px; } /* flex: an inline checkbox would stretch the line box */
 .line span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .month .line span { white-space: nowrap; }
 .lines { margin: 0; padding: 0; font-size: 12px; } /* the memo's editable lines */
-.lines li { padding-left: 2px; }
 .lines li > * { vertical-align: middle; }
 .line input[type="checkbox"] { flex: none; }
-.line input[type="checkbox"], .lines input[type="checkbox"] { width: 13px; height: 13px; margin-right: 4px; }
+.line .hit, .lines .hit { margin-right: -5px; padding-left: 2px; } /* 2 + 13 + 4 as before: the label's extra width sits over the dot */
+.line input[type="checkbox"], .lines input[type="checkbox"] { width: 13px; height: 13px; }
 .line.done span, .lines li.done input[type="text"] { color: var(--muted); text-decoration: line-through; }
 .lines.editing li { white-space: nowrap; }
 .lines input[type="text"] {
-  width: calc(100% - 17px); min-height: 0; padding: 0 2px; border: 0; border-radius: 2px; background: var(--bg); font-size: 12px;
+  width: calc(100% - 19px); min-height: 0; padding: 0 2px; border: 0; border-radius: 2px; background: var(--bg); font-size: 12px;
 }
 .lines input:focus-visible { outline-offset: -2px; } /* the scrolling list would clip an outside ring */
 .week .lines, .week .items { font-size: 13px; }
@@ -200,13 +217,16 @@ label.check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .memo .lines li { white-space: normal; }
 @keyframes pop { from { transform: scale(0.97); opacity: 0.6; } }
 @media (prefers-reduced-motion: reduce) { .memo { animation: none; } }
-.more { min-height: 20px; padding: 0 6px; border: 0; font-size: 12px; color: var(--muted); }
+.more { min-height: 24px; margin-block: -2px; padding: 0 6px; border: solid transparent; border-width: 2px 0; background-clip: padding-box; font-size: 12px; color: var(--muted); }
+/* Checkbox hit area: a 24px label around the 13-16px box. It overlaps the gap after it, so the row layout stays as before. */
+.hit { position: relative; display: inline-flex; align-items: center; flex: none; width: 24px; min-height: 24px; margin-block: -2px; cursor: pointer; }
+.hit input { margin: 0; }
 
 .tasks { border-left: 1px solid var(--line); overflow: hidden; min-width: 0; }
 .tasks-in { display: flex; flex-direction: column; gap: 12px; padding: 12px 16px; width: 299px; height: 100%; overflow: auto; }
 .tasks ul { display: grid; gap: 2px; }
 .task { display: flex; gap: 8px; align-items: flex-start; }
-.task input { margin-top: 8px; }
+.task .hit { margin: 4px -8px 0 0; } /* 16px box centred on the 32px title button; extra width sits over the 8px gap */
 .task-title {
   flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 0;
   padding: 4px 6px; border: 0; text-align: left; white-space: normal;
@@ -233,7 +253,8 @@ dialog section { padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px s
 dialog form { display: grid; gap: 12px; }
 .field { display: grid; gap: 4px; }
 .row .field { flex: 1; min-width: 120px; }
-.field label { font-size: 13px; font-weight: 500; }
+.field label, .field .legend { font-size: 13px; font-weight: 500; }
+.field > .seg { justify-self: start; }
 .row { display: flex; flex-wrap: wrap; gap: 12px; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 4px; }
 .actions .danger:not(:has(+ .danger)) { margin-right: auto; } /* one or two delete buttons stay together on the left */

@@ -3,14 +3,16 @@ import { listen } from "@tauri-apps/api/event";
 import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
 import { availableMonitors, getCurrentWindow } from "@tauri-apps/api/window";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { setLang, tr, type Lang } from "../i18n";
 import type { Event, Task } from "../model";
 import { createSync, tauriLocal, tauriRemote, type Remote, type SyncState } from "../sync";
-import { Calendar, calendarTitle, shift, weekShortTitle, type View } from "./Calendar";
+import { Calendar, calendarTitle, shift, type View } from "./Calendar";
+import { routineList } from "../recur";
 import { today } from "./dates";
 import { EventDialog, newEvent, TaskDialog } from "./Dialogs";
 import { Check, Clock, Close, Merge, Next, Offline, Prev, Gear, Menu, Pin, Warn } from "./icons";
-import { fitsOnScreen, normalizeSettings, type Settings } from "./prefs";
+import { fitsOnScreen, insideOneScreen, normalizeSettings, type Settings } from "./prefs";
 import { SettingsDialog } from "./Settings";
 import { TaskPanel } from "./Tasks";
 
@@ -46,38 +48,46 @@ async function restoreWindow(s: Settings) {
       await w.setSize(new PhysicalSize(s.window.width, s.window.height));
     }
   }
-  if (s.alwaysBottom) await applyPin(true);
 }
 
-/** Pinned: under every window, staying there even when clicked (the user's choice, session 19), and no moving or resizing.
- *  Unpinned: an ordinary window. Clearing always-bottom sends HWND_NOTOPMOST, a no-op for a window that isn't topmost,
- *  so the top on/off pair brings the window you just clicked out from under the others. */
+/** Pinned: on the desktop under the icons, fixed in place, clicked through wherever no icon covers it (desktop.rs, session 22).
+ *  Unpinned: an ordinary window for moving and resizing only.
+ *  Resizable changes go while the window is top-level: tao rewrites the window style on every flag change. */
 async function applyPin(on: boolean) {
   const w = getCurrentWindow();
-  await w.setResizable(!on);
-  await w.setAlwaysOnBottom(on);
-  if (on) return;
-  await w.setAlwaysOnTop(true);
-  await w.setAlwaysOnTop(false);
+  if (on) await w.setResizable(false);
+  await invoke("desktop_pin", { on });
+  if (!on) await w.setResizable(true);
 }
+
+/** The whole window must sit on one monitor to be pinned. */
+async function canPin() {
+  const w = getCurrentWindow();
+  const [p, z, ms] = await Promise.all([w.outerPosition(), w.outerSize(), availableMonitors()]);
+  return insideOneScreen({ x: p.x, y: p.y, width: z.width, height: z.height },
+    ms.map(({ position: q, size: m }) => ({ x: q.x, y: q.y, width: m.width, height: m.height })));
+}
+
 
 async function applyAutostart(on: boolean) {
   if (!import.meta.env.PROD) return; // a dev run would register the target\debug exe in the Run key
   if ((await isEnabled()) !== on) await (on ? enable() : disable());
 }
 
-const STATE: Record<SyncState, { label: string; hint: string; Icon: () => preact.JSX.Element }> = {
-  done: { label: "완료", hint: "모든 변경이 GitHub에 올라갔습니다", Icon: Check },
-  pending: { label: "대기", hint: "올릴 변경이 있습니다. 마지막 편집 15초 뒤에 올립니다", Icon: Clock },
-  offline: { label: "오프라인", hint: "GitHub에 닿지 못했습니다. 변경은 이 PC에 저장돼 있습니다", Icon: Offline },
-  merged: { label: "병합됨", hint: "GitHub에 있던 변경을 합쳤습니다", Icon: Merge },
-};
+const ICON: Record<SyncState, () => preact.JSX.Element> = { done: Check, pending: Clock, offline: Offline, merged: Merge };
+
+/** Screen text, <html lang> and the tray menu (Rust keeps Korean until the page calls this). */
+function applyLang(l: Lang) {
+  setLang(l);
+  invoke("set_tray_labels", { open: tr.trayOpen, quit: tr.trayQuit }).catch(console.error);
+}
 
 export function App() {
   const [engine, setEngine] = useState<Engine | null>(null);
   const ref = useRef<Engine | null>(null);
   const [settings, setSettings] = useState<Settings>(() => normalizeSettings(null));
   const prefs = useRef(settings); // latest saved settings, for writes from event listeners
+  const [offScreen, setOffScreen] = useState(false); // the last pin attempt was refused
   const [, setTick] = useState(0);
   const bump = () => setTick((t) => t + 1);
   const [view, setView] = useState<View>("month");
@@ -111,11 +121,19 @@ export function App() {
     let last = "";
     (async () => {
       const s = normalizeSettings(await tauriLocal.read(SETTINGS_PATH));
+      applyLang(s.lang);
       prefs.current = s;
       setSettings(s);
       await restoreWindow(s).catch(console.error);
-      await win.show();
+      await win.show(); // before pinning: showing rewrites the window style (desktop.rs)
       last = JSON.stringify(await geometry());
+      if (s.alwaysBottom) {
+        if (await canPin()) await applyPin(true);
+        else {
+          setOffScreen(true); // e.g. a monitor came off since last time
+          await saveSettings({ alwaysBottom: false });
+        }
+      }
       applyAutostart(s.autostart).catch(console.error);
       await reconnect(s);
     })().catch((e) => {
@@ -129,10 +147,10 @@ export function App() {
     // Save position and size 0.5 s after moving or resizing stops. Minimized/maximized geometry is not a place to come back to.
     let timer: ReturnType<typeof setTimeout> | undefined;
     const onGeometry = () => {
-      // Win+D minimizes even an always-on-bottom window (session 5); on the desktop it should stay put.
-      void win.isMinimized().then((min) => {
-        if (min && prefs.current.alwaysBottom) return win.unminimize();
-      });
+      // Pinned, the window is a child of the desktop and its rect reads back scaled (session 21): never save it.
+      // Before startup finishes, prefs still hold the defaults (unpinned): a recreated window saved its child rect that way.
+      if (prefs.current.alwaysBottom || !last) return;
+      setOffScreen(false);
       clearTimeout(timer);
       timer = setTimeout(async () => {
         if ((await win.isMinimized()) || (await win.isMaximized())) return;
@@ -142,11 +160,72 @@ export function App() {
         await saveSettings({ window: g });
       }, 500);
     };
+    // Pinned, the window sits under the desktop icons and gets no mouse input; desktop.rs passes on left clicks over
+    // empty desktop. Replay them on the element under the pointer, with the focus change a real press would make.
+    const unDbl = listen<["down" | "up", number, number, boolean]>("desktop-mouse", ({ payload: [kind, px, py, dbl] }) => {
+      const x = px / devicePixelRatio, y = py / devicePixelRatio;
+      const el = document.elementFromPoint(x, y);
+      if (!el) return;
+      const o = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, button: 0, view: window };
+      if (kind === "down") {
+        if (!el.dispatchEvent(new MouseEvent("mousedown", { ...o, buttons: 1 }))) return; // the page kept focus where it is
+        const f = el.closest<HTMLElement>("input, textarea, select, button, [tabindex]");
+        if (f) f.focus();
+        else (document.activeElement as HTMLElement | null)?.blur();
+        return;
+      }
+      if (el instanceof HTMLInputElement && el.type === "range") {
+        // Only press and release are forwarded, never moves, so a drag can't happen: a click sets the value under the pointer.
+        const r = el.getBoundingClientRect(), lo = Number(el.min), hi = Number(el.max);
+        el.value = String(Math.round(lo + Math.min(1, Math.max(0, (x - r.left) / r.width)) * (hi - lo)));
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        return;
+      }
+      el.dispatchEvent(new MouseEvent("mouseup", o));
+      el.dispatchEvent(new MouseEvent("click", o));
+      if (dbl) el.dispatchEvent(new MouseEvent("dblclick", o));
+    });
+    // Pinned, the wheel arrives the same way (desktop.rs). A script wheel event scrolls nothing, so scroll the nearest
+    // scrollable box under the pointer by hand: 120 per notch is one notch, about 100px as WebView2 scrolls it.
+    // Each turn only moves a target; a frame loop eases toward it (25% of the gap, snap under 4px), so fast turns add up.
+    let glide: { el: Element; to: number } | null = null;
+    let glideFrame = 0;
+    const step = () => {
+      if (!glide) return;
+      const d = glide.to - glide.el.scrollTop;
+      if (Math.abs(d) < 4) {
+        glide.el.scrollTop = glide.to;
+        glide = null;
+        return;
+      }
+      glide.el.scrollTop += d * 0.25;
+      glideFrame = requestAnimationFrame(step);
+    };
+    const unWheel = listen<[number, number, number]>("desktop-wheel", ({ payload: [px, py, delta] }) => {
+      let el = document.elementFromPoint(px / devicePixelRatio, py / devicePixelRatio);
+      for (; el; el = el.parentElement) {
+        const oy = getComputedStyle(el).overflowY;
+        if ((oy === "auto" || oy === "scroll") && el.scrollHeight > el.clientHeight) break;
+      }
+      el ??= document.scrollingElement;
+      if (!el) return;
+      const dy = (-delta / 120) * 100;
+      if (matchMedia("(prefers-reduced-motion: reduce)").matches) return el.scrollBy({ top: dy });
+      if (glide && glide.el !== el) glide.el.scrollTop = glide.to; // pointer moved to another box: finish the old one
+      const from = glide?.el === el ? glide.to : el.scrollTop;
+      glide = { el, to: Math.max(0, Math.min(el.scrollHeight - el.clientHeight, from + dy)) };
+      cancelAnimationFrame(glideFrame);
+      glideFrame = requestAnimationFrame(step);
+    });
     const unMoved = win.onMoved(onGeometry);
     const unResized = win.onResized(onGeometry);
     const clock = setInterval(bump, 60_000); // keeps "today" right when the app stays open past midnight
     return () => {
       void unlisten.then((f) => f());
+      void unDbl.then((f) => f());
+      void unWheel.then((f) => f());
+      cancelAnimationFrame(glideFrame);
       void unMoved.then((f) => f());
       void unResized.then((f) => f());
       clearTimeout(timer);
@@ -162,12 +241,17 @@ export function App() {
     await tauriLocal.write(SETTINGS_PATH, JSON.stringify(s, null, 2) + "\n");
   };
 
-  if (fatal) return <p class="fatal" role="alert">시작하지 못했습니다: {fatal}</p>;
-  if (!engine) return <p class="fatal">불러오는 중…</p>;
+  // sync keeps the same array until its data changes; a fresh filter() per render would make Calendar re-measure every cell.
+  const stored = engine?.sync.events();
+  const visibleEvents = useMemo(() => stored?.filter((e) => !e.deleted) ?? [], [stored]);
+
+  if (fatal) return <p class="fatal" role="alert">{tr.fatal}{fatal}</p>;
+  if (!engine) return <p class="fatal">{tr.loading}</p>;
 
   const { sync, live } = engine;
   const status = sync.status();
-  const st = STATE[status.state];
+  const [stLabel, stHint] = tr.states[status.state];
+  const StIcon = ICON[status.state];
   const title = calendarTitle(view, sel);
   const now = today();
   const pinned = settings.alwaysBottom;
@@ -194,57 +278,65 @@ export function App() {
       {/* No title bar: the header's empty parts move the window (Tauri drag region applies to the marked element itself, not its children). */}
       <header class="bar" data-tauri-drag-region={drag}>
         <div class="nav" data-tauri-drag-region={drag}>
-          <button type="button" class="icon" aria-label={view === "month" ? "이전 달" : "이전 주"}
+          <button type="button" class="icon" aria-label={view === "month" ? tr.prevMonth : tr.prevWeek}
             onClick={() => setSel(shift(view, sel, -1))}><Prev /></button>
-          <button type="button" onClick={() => setSel(now)}>오늘</button>
-          <button type="button" class="icon" aria-label={view === "month" ? "다음 달" : "다음 주"}
+          <button type="button" onClick={() => setSel(now)}>{tr.today}</button>
+          <button type="button" class="icon" aria-label={view === "month" ? tr.nextMonth : tr.nextWeek}
             onClick={() => setSel(shift(view, sel, 1))}><Next /></button>
-          {/* Spans let a narrow header drop the year or switch to the short week title; each needs its own drag mark. */}
+          {/* Spans let a narrow header drop the year or switch to the short title; each needs its own drag mark. */}
           <h1 data-tauri-drag-region={drag}>
-            <span class="year" data-tauri-drag-region={drag}>{title.slice(0, 6)}</span>
-            <span class="full" data-tauri-drag-region={drag}>{title.slice(6)}</span>
-            {view === "week" && <span class="short" data-tauri-drag-region={drag}>{weekShortTitle(sel)}</span>}
+            {tr.yearFirst && <span class="year" data-tauri-drag-region={drag}>{title.year}</span>}
+            <span class="full" data-tauri-drag-region={drag}>{title.main}</span>
+            {!tr.yearFirst && <span class="year" data-tauri-drag-region={drag}>{title.year}</span>}
+            {title.short && <span class="short" data-tauri-drag-region={drag}>{title.short}</span>}
           </h1>
         </div>
-        <div class="seg" role="group" aria-label="보기">
-          <button type="button" aria-pressed={view === "month"} onClick={() => setView("month")}>월</button>
-          <button type="button" aria-pressed={view === "week"} onClick={() => setView("week")}>주</button>
+        <div class="seg" role="group" aria-label={tr.view}>
+          {/* The abbreviation takes over at ≤640px, where the English words would squeeze out the title. */}
+          <button type="button" aria-label={tr.month} aria-pressed={view === "month"} onClick={() => setView("month")}>
+            <span class="long">{tr.month}</span><span class="abbr">{tr.monthAbbr}</span></button>
+          <button type="button" aria-label={tr.week} aria-pressed={view === "week"} onClick={() => setView("week")}>
+            <span class="long">{tr.week}</span><span class="abbr">{tr.weekAbbr}</span></button>
         </div>
-        <button type="button" onClick={() => setEditEvent({ event: newEvent(sel), isNew: true })}>루틴</button>
+        <button type="button" disabled={!pinned} title={pinned ? undefined : tr.moveMode}
+          onClick={() => setEditEvent({ event: newEvent(sel), isNew: true })}>{tr.routine}</button>
         <span class="spacer" data-tauri-drag-region={drag} />
         <div class="sync" data-tauri-drag-region={drag}>
-          <span class={`status ${live ? status.state : "local"}`} role="status" title={live ? st.hint : undefined}>
-            <span class="sr-only">동기화 상태: </span>
-            {live ? <><st.Icon /> <span class="label">{st.label}</span></> : <><Offline /> <span class="label">연결 안 됨</span></>}
+          <span class={`status ${live ? status.state : "local"}`} role="status" title={live ? stHint : undefined}>
+            <span class="sr-only">{tr.syncState}</span>
+            {live ? <><StIcon /> <span class="label">{stLabel}</span></> : <><Offline /> <span class="label">{tr.notConnected}</span></>}
           </span>
-          {live && <button type="button" class="sync-now" onClick={syncNow} disabled={syncing}>{syncing ? "동기화 중…" : "지금 동기화"}</button>}
+          {live && <button type="button" class="sync-now" onClick={syncNow} disabled={syncing}>{syncing ? tr.syncing : tr.syncNow}</button>}
         </div>
-        <button type="button" class="icon pin" aria-label="바탕화면에 고정" aria-pressed={pinned}
-          title={pinned ? "고정됨: 다른 창 뒤에 머물고, 옮기거나 크기를 바꿀 수 없습니다. 누르면 풀림" : "바탕화면에 고정 (다른 창 뒤에 머물고, 옮기기·크기 조절을 막습니다)"}
+        <button type="button" class="icon pin" aria-label={tr.pin} aria-pressed={pinned}
+          title={pinned ? tr.pinnedTitle : tr.unpinnedTitle}
           onClick={async () => {
+            if (!pinned && !(await canPin())) return setOffScreen(true);
             await applyPin(!pinned);
             await saveSettings({ alwaysBottom: !pinned });
           }}><Pin /></button>
-        <button type="button" class="icon" aria-label="설정" onClick={() => setShowSettings(true)}><Gear /></button>
-        <button type="button" class="icon" aria-label="닫기 (트레이로 숨김)" title="닫기 (트레이로 숨김)"
+        <button type="button" class="icon" aria-label={tr.settings} onClick={() => setShowSettings(true)}><Gear /></button>
+        <button type="button" class="icon" aria-label={tr.close} title={tr.close}
           onClick={() => void getCurrentWindow().hide()}><Close /></button>
-        <button type="button" class="icon" aria-label="메모 패널" aria-pressed={!!settings.memoOpen} title="메모 패널"
+        <button type="button" class="icon" aria-label={tr.memoPanel} aria-pressed={!!settings.memoOpen} title={tr.memoPanel}
           onClick={() => void saveSettings({ memoOpen: !settings.memoOpen })}><Menu /></button>
       </header>
 
       {!settings.introSeen && (
-        <div class="notices intro" role="region" aria-label="처음 안내">
-          <p>Windows를 켤 때 자동으로 실행되게 하려면 설정에서 "Windows 시작 시 실행"을 켜세요. 지금은 꺼져 있습니다.</p>
+        <div class="notices intro" role="region" aria-label={tr.introLabel}>
+          <p>{tr.intro}</p>
           <p class="actions">
-            <button type="button" onClick={() => { void saveSettings({ introSeen: true }); setShowSettings(true); }}>설정 열기</button>
-            <button type="button" onClick={() => void saveSettings({ introSeen: true })}>확인</button>
+            <button type="button" onClick={() => { void saveSettings({ introSeen: true }); setShowSettings(true); }}>{tr.openSettings}</button>
+            <button type="button" onClick={() => void saveSettings({ introSeen: true })}>{tr.ok}</button>
           </p>
         </div>
       )}
-      <Notices live={live} state={status.state} held={status.held} clockSkew={status.clockSkew} error={status.error} />
+      <Notices live={live} state={status.state} held={status.held} clockSkew={status.clockSkew} publicRepo={status.publicRepo} error={status.error}
+        extra={[...(offScreen ? [tr.offScreen] : []), ...(pinned ? [] : [tr.moveMode])]} />
 
-      <main class={settings.memoOpen ? "body" : "body no-memo"}>
-        <Calendar view={view} sel={sel} today={now} events={sync.events().filter((e) => !e.deleted)} tasks={sync.tasks()}
+      {/* Unpinned is for moving and resizing only (session 22): the calendar and tasks take no input. */}
+      <main class={settings.memoOpen ? "body" : "body no-memo"} inert={!pinned}>
+        <Calendar view={view} sel={sel} today={now} events={visibleEvents} tasks={sync.tasks()}
           onSelect={setSel}
           onSaveTasks={(ts) => void Promise.all(ts.map((t) => sync.saveTask(t))).then(bump)}
           // An occurrence is a copy with shifted dates: edit the stored series, remember which day was clicked.
@@ -255,7 +347,7 @@ export function App() {
       {editEvent && (
         // key: picking a routine from the new-routine list swaps in a fresh dialog with that routine's form.
         <EventDialog key={editEvent.event.id} event={editEvent.event} isNew={editEvent.isNew} day={editEvent.day}
-          routines={sync.events().filter((e) => e.recurrence && !e.deleted).sort((a, b) => a.title.localeCompare(b.title, "ko"))}
+          {...routineList(sync.events(), now)}
           onPick={(e) => setEditEvent({ event: e, isNew: false })}
           onSave={saveEvent} onClose={() => setEditEvent(null)} />
       )}
@@ -264,9 +356,10 @@ export function App() {
         <SettingsDialog settings={settings} live={live} hasToken={engine.hasToken}
           unsynced={status.state === "pending" || status.state === "offline"} unpushed={status.unpushed}
           onConnect={async (s, token) => {
+            // Check before storing: a token for a public repo is never saved.
+            if (!(await invoke<boolean>("gh_private", { owner: s.owner, repo: s.repo, token: token || null })))
+              throw tr.publicRepo;
             if (token) await invoke("secret_set", { token });
-            if (!(await invoke<boolean>("gh_private", { owner: s.owner, repo: s.repo })))
-              throw "공개(public) 저장소에는 연결할 수 없습니다. 누구나 일정을 볼 수 있게 됩니다. private 저장소를 만들어 쓰세요.";
             await saveSettings(s);
             await reconnect(s);
           }}
@@ -276,6 +369,10 @@ export function App() {
             await applyAutostart(v);
             await saveSettings({ autostart: v });
           }}
+          onLang={(l) => {
+            applyLang(l);
+            void saveSettings({ lang: l });
+          }}
           onOpacity={(v, save) => (save ? void saveSettings({ opacity: v }) : setSettings({ ...settings, opacity: v }))}
           onClose={() => setShowSettings(false)} />
       )}
@@ -283,13 +380,12 @@ export function App() {
   );
 }
 
-function Notices(p: { live: boolean; state: SyncState; held: string[]; clockSkew: boolean; error?: string }) {
-  const lines: string[] = [];
-  if (p.held.length)
-    lines.push(`GitHub의 ${p.held.join(", ")} 을(를) 읽지 못해 병합을 보류했습니다. 레포에서 JSON을 고친 뒤 지금 동기화를 누르세요.`);
-  if (p.clockSkew)
-    lines.push("받은 항목의 수정 시각이 이 PC 시계보다 10분 넘게 앞섭니다. 이 PC와 Pickle 쪽 시계를 확인하세요.");
-  if (p.live && p.state === "offline" && p.error) lines.push(`GitHub에 닿지 못했습니다: ${p.error}`);
+function Notices(p: { live: boolean; state: SyncState; held: string[]; clockSkew: boolean; publicRepo: boolean; error?: string; extra: string[] }) {
+  const lines: string[] = [...p.extra];
+  if (p.held.length) lines.push(tr.held(p.held.join(", ")));
+  if (p.clockSkew) lines.push(tr.clockSkew);
+  if (p.publicRepo) lines.push(tr.publicNow);
+  if (p.live && p.state === "offline" && p.error) lines.push(tr.unreachable(p.error));
   if (!lines.length) return null;
   return (
     <div class="notices" role="alert">

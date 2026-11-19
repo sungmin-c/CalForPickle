@@ -1,5 +1,7 @@
-import { instant, seoulDate, seoulStamp, type Event, type Task } from "./model";
-import { expand } from "./recur";
+import { instant, type Event, type Task } from "./model";
+import { expand, overlaps } from "./recur";
+import { addDays } from "./ui/dates";
+import { dateIn, stampIn } from "./zone";
 
 export const UPCOMING_PATH = "upcoming.json";
 const DAYS = 14;
@@ -14,17 +16,15 @@ export interface Upcoming {
 
 /** Agent-facing digest: events (recurring ones expanded) overlapping [today, today+14d) and every open task. Notes left out to save tokens. */
 export function generateUpcoming(events: Event[], tasks: Task[], now: Date): Upcoming {
-  const from = seoulDate(now.getTime());
-  const fromMs = instant(from);
-  const toMs = fromMs + DAYS * 86400_000;
+  const from = dateIn(now.getTime());
+  const to = addDays(from, DAYS);
   const startOf = (e: Event) => instant(e.start);
   const byKey = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
   const byId = (a: { id: string }, b: { id: string }) => byKey(a.id, b.id);
 
   // A recurring event shows once per occurrence, each under the event's own id.
-  const evs = expand(events.filter((e) => !e.deleted), from, seoulDate(toMs))
-    // max(end, start+1ms) keeps zero-length events visible on their own instant.
-    .filter((e) => !e.deleted && startOf(e) < toMs && Math.max(instant(e.end), startOf(e) + 1) > fromMs)
+  const evs = expand(events.filter((e) => !e.deleted), from, to)
+    .filter((e) => overlaps(e, from, to))
     .sort((a, b) => startOf(a) - startOf(b) || byId(a, b))
     .map(({ id, title, start, end, allDay, location }) => ({ id, title, start, end, allDay, location }));
 
@@ -34,7 +34,7 @@ export function generateUpcoming(events: Event[], tasks: Task[], now: Date): Upc
     .sort((a, b) => byKey(a.due ?? "~", b.due ?? "~") || byId(a, b))
     .map(({ id, title, status, due, priority }) => ({ id, title, status, due, priority }));
 
-  return { generatedAt: seoulStamp(now.getTime()), from, to: seoulDate(toMs), events: evs, tasks: tks };
+  return { generatedAt: stampIn(now.getTime()), from, to, events: evs, tasks: tks };
 }
 
 export function serializeUpcoming(u: Upcoming): string {

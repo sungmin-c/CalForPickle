@@ -1,10 +1,11 @@
+mod desktop;
 mod files;
 mod github;
 mod secret;
 
 use std::time::Duration;
 use tauri::{
-    AppHandle, Emitter, Manager, WindowEvent,
+    AppHandle, Emitter, Manager, RunEvent, State, WindowEvent, Wry,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
@@ -20,6 +21,7 @@ fn show_main(app: &AppHandle) {
 /// The webview pushes pending edits (up to 10 s) and then calls app_exit.
 /// If the webview never answers, exit anyway after 11 s; unpushed files stay dirty on disk for next launch.
 fn request_quit(app: &AppHandle) {
+    desktop::quitting();
     let _ = app.emit("quit-requested", ());
     let app = app.clone();
     std::thread::spawn(move || {
@@ -28,8 +30,18 @@ fn request_quit(app: &AppHandle) {
     });
 }
 
+/// Tray menu items, relabelled by the page in the chosen language. Korean until the page loads.
+struct TrayItems(MenuItem<Wry>, MenuItem<Wry>);
+
+#[tauri::command]
+fn set_tray_labels(items: State<TrayItems>, open: String, quit: String) -> Result<(), String> {
+    items.0.set_text(open).map_err(|e| e.to_string())?;
+    items.1.set_text(quit).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn app_exit(app: AppHandle) {
+    desktop::quitting();
     app.exit(0);
 }
 
@@ -60,17 +72,22 @@ pub fn run() {
                 tray = tray.icon(icon.clone());
             }
             tray.build(app)?;
+            app.manage(TrayItems(show, quit));
+            desktop::start(app.handle().clone());
             Ok(())
         })
         // Closing the window keeps the app in the tray; quitting goes through the tray menu so edits get flushed.
-        .on_window_event(|w, e| {
-            if let WindowEvent::CloseRequested { api, .. } = e {
+        .on_window_event(|w, e| match e {
+            WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
                 let _ = w.hide();
             }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             app_exit,
+            set_tray_labels,
+            desktop::desktop_pin,
             secret::secret_set,
             secret::secret_exists,
             secret::secret_delete,
@@ -83,6 +100,13 @@ pub fn run() {
             files::local_list,
             files::local_clear,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        // The last window going away (explorer restart, see desktop.rs) must not end the app before the watcher restarts it;
+        // app.exit passes a code and still quits.
+        .run(|_, e| {
+            if let RunEvent::ExitRequested { code: None, api, .. } = e {
+                api.prevent_exit();
+            }
+        });
 }

@@ -1,4 +1,5 @@
 import { parseRule } from "./recur";
+import { stampIn } from "./zone";
 
 export type Status = "todo" | "doing" | "done";
 export type Priority = "high" | "normal" | "low";
@@ -10,8 +11,9 @@ export interface Event {
   start: string;
   end: string;
   allDay: boolean;
+  tz?: string; // IANA zone the times were entered in; repeats follow its DST. Absent: the fixed offset of start
   recurrence?: string; // RRULE body, e.g. "FREQ=WEEKLY;BYDAY=MO" (src/recur.ts subset)
-  exdates?: string[]; // skipped occurrence dates "YYYY-MM-DD" (Seoul)
+  exdates?: string[]; // skipped occurrence dates "YYYY-MM-DD" in the series' zone (src/zone.ts zoneOf)
   location: string;
   notes: string;
   updatedAt: string;
@@ -34,32 +36,34 @@ export interface Task {
 export type Item = Event | Task;
 
 // Key order is the on-disk order (DESIGN §4.1). Changing it reorders every line in the repo.
-const EVENT_KEYS = ["id", "title", "color", "start", "end", "allDay", "recurrence", "exdates", "location", "notes", "updatedAt", "deleted"] as const;
+const EVENT_KEYS = ["id", "title", "color", "start", "end", "allDay", "tz", "recurrence", "exdates", "location", "notes", "updatedAt", "deleted"] as const;
 const TASK_KEYS = ["id", "title", "color", "status", "due", "priority", "order", "notes", "updatedAt", "deleted"] as const;
 const STATUSES = ["todo", "doing", "done"];
 const PRIORITIES = ["high", "normal", "low"];
 
-const SEOUL_MS = 9 * 3600_000;
+const OFFSET = /(Z|[+-]\d{2}:\d{2})$/;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_STAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
 
-/** "2026-11-15T10:00:00.000+09:00" for an instant. */
-export function seoulStamp(ms: number): string {
-  return new Date(ms + SEOUL_MS).toISOString().replace("Z", "+09:00");
+/** A real calendar day "YYYY-MM-DD" (rejects 2026-02-30). */
+export function isDate(v: string): boolean {
+  const ms = Date.parse(`${v}T00:00:00Z`);
+  return ISO_DATE.test(v) && !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 10) === v;
 }
 
-/** Seoul calendar date "YYYY-MM-DD" of an instant. */
-export function seoulDate(ms: number): string {
-  return seoulStamp(ms).slice(0, 10);
-}
+// A bare date is still accepted on a timed event (Seoul midnight): older files have it.
+const isStamp = (v: string) => isDate(v) || (ISO_STAMP.test(v) && isDate(v.slice(0, 10)) && !Number.isNaN(Date.parse(v)));
 
-/** Instant of a start/end value; a bare date means Seoul midnight. */
+/** Instant of a start/end value; a bare date or a missing offset means Seoul, the format of older files. */
 export function instant(value: string): number {
-  return Date.parse(value.length === 10 ? `${value}T00:00:00+09:00` : value);
+  if (value.length === 10) return Date.parse(`${value}T00:00:00+09:00`);
+  return Date.parse(OFFSET.test(value) ? value : `${value}+09:00`); // no offset = Seoul, whatever the PC's zone
 }
 
 /** updatedAt for a local edit: never earlier than 1ms after the version being replaced (DESIGN §7.1 #2). */
 export function nextStamp(prev: string | undefined, now: Date): string {
   const floor = prev ? Date.parse(prev) + 1 : -Infinity;
-  return seoulStamp(Math.max(now.getTime(), floor));
+  return stampIn(Math.max(now.getTime(), floor));
 }
 
 function fail(msg: string): never {
@@ -101,7 +105,8 @@ export function normalizeEvent(raw: unknown): Event {
   dropUnknown(o, EVENT_KEYS);
   const start = str(o, "start", true);
   const end = str(o, "end", true);
-  if (Number.isNaN(instant(start)) || Number.isNaN(instant(end))) fail(`start/end on ${String(o.id)}`);
+  const okType = o.allDay === true ? isDate : isStamp;
+  if (!okType(start) || !okType(end) || instant(end) < instant(start)) fail(`start/end on ${String(o.id)}`);
   const e: Event = {
     id: str(o, "id", true),
     title: str(o, "title"),
@@ -114,6 +119,14 @@ export function normalizeEvent(raw: unknown): Event {
     deleted: o.deleted === true,
   };
   color(o, e);
+  if (o.tz !== undefined) {
+    e.tz = str(o, "tz", true);
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: e.tz });
+    } catch {
+      fail(`tz "${e.tz}" on ${e.id}`);
+    }
+  }
   if (o.recurrence !== undefined) {
     e.recurrence = str(o, "recurrence", true);
     try {
@@ -144,7 +157,10 @@ export function normalizeTask(raw: unknown): Task {
     deleted: o.deleted === true,
   };
   color(o, t);
-  if (o.due !== undefined) t.due = str(o, "due", true);
+  if (o.due !== undefined) {
+    t.due = str(o, "due", true);
+    if (!isDate(t.due)) fail(`due "${t.due}" on ${t.id}`);
+  }
   if (o.priority !== undefined) {
     if (!PRIORITIES.includes(o.priority as string)) fail(`priority "${String(o.priority)}"`);
     t.priority = o.priority as Priority;

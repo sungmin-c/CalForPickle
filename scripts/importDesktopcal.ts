@@ -1,6 +1,7 @@
 // One-time import of CalendarTask (desktopcal) day cells into tasks. Pure functions; the CLI is importDesktopcal.cli.ts.
 import { mergeItems } from "../src/merge";
-import { ordered, seoulStamp, type Event, type Status, type Task } from "../src/model";
+import { stampIn } from "../src/zone";
+import { ordered, type Event, type Status, type Task } from "../src/model";
 
 /** Fixed namespace: changing it changes every imported id. */
 export const IMPORT_NS = "96664484-7fe3-442b-9010-0f971d98dad1";
@@ -147,7 +148,7 @@ export async function sourceEvent(row: EventRow): Promise<Event | null> {
     recurrence,
     location: "",
     notes: "",
-    updatedAt: seoulStamp(Math.max(stamp(row.cdate), stamp(row.mdate))),
+    updatedAt: stampIn(Math.max(stamp(row.cdate), stamp(row.mdate)), "+09:00"), // DesktopCal data is Seoul time
     deleted: false,
   };
   if (del) e.exdates = [`${del[1]}-${del[2]}-${del[3]}`];

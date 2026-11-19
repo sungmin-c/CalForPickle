@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseTasks, serializeTasks } from "../src/model";
+import { parseTasks, serializeEvents, serializeTasks } from "../src/model";
 import { createSync, shouldDailyPull, type Local, type Remote } from "../src/sync";
 import { ev, task } from "./fixtures";
 
@@ -72,7 +72,7 @@ describe("5. app edit right after a Pickle push", () => {
     await sync.load();
     await sync.syncNow();
     expect(sync.status().state).toBe("done");
-    expect(r.files["AGENT_GUIDE.md"]).toMatch(/^<!-- agent-guide v6 -->/);
+    expect(r.files["AGENT_GUIDE.md"]).toMatch(/^<!-- agent-guide v7 -->/);
     expect(r.files["AGENT_GUIDE.md"]).toContain("generatedAt");
 
     // Pickle commits a new task directly to the repo.
@@ -92,6 +92,57 @@ describe("5. app edit right after a Pickle push", () => {
   });
 });
 
+describe("gh_* path allow-list (handoff §2-4)", () => {
+  it("pull never asks for repo files outside the allow-list, so a stray file cannot break sync", async () => {
+    const r = fakeRemote({
+      "data/tasks.json": "[]\n",
+      "data/events/2026-11.json": serializeEvents([ev({ id: "e1", start: "2026-11-15T10:00:00+09:00" })]),
+      "data/events/memo.json": "[]\n",
+      "data/events/2026-11.json.bak.json": "[]\n",
+      "data/notes.json": "[]\n",
+    });
+    const asked: string[] = [];
+    const get = r.remote.get;
+    r.remote.get = async (path) => {
+      asked.push(path);
+      return get(path);
+    };
+    const sync = createSync({ remote: r.remote, local: memLocal(), now: () => at("2026-11-15T09:00:00+09:00") });
+    await sync.load();
+    await sync.syncNow();
+    expect(sync.status().state).not.toBe("error");
+    expect(asked.filter((p) => !/^(data\/tasks\.json|data\/events\/\d{4}-\d\d\.json|AGENT_GUIDE\.md)$/.test(p))).toEqual([]);
+  });
+});
+
+describe("saves no longer wait for the network queue (handoff §1-A)", () => {
+  it("an edit saved while its file is being pushed stays dirty and goes out next", async () => {
+    const r = fakeRemote({ "data/tasks.json": "[]\n" });
+    let release = () => {};
+    const put = r.remote.put;
+    r.remote.put = async (...args) => {
+      if (args[0] === "data/tasks.json") await new Promise<void>((ok) => (release = ok));
+      return put(...args);
+    };
+    const sync = createSync({ remote: r.remote, local: memLocal(), now: () => at("2026-11-15T09:00:00+09:00"), debounceMs: 3_600_000 });
+    await sync.load();
+    await sync.syncNow(); // learn the sha; tasks.json is not dirty, so no gated put
+    await sync.saveTask(task({ id: "a" }));
+    const pushing = sync.push(); // sends "a" only, then waits in put
+    await new Promise((ok) => setTimeout(ok, 10));
+    await sync.saveTask(task({ id: "b" }));
+    release();
+    await pushing;
+    expect(parseTasks(r.files["data/tasks.json"]).map((t) => t.id)).toEqual(["a"]);
+    expect(sync.status().unpushed).toBe(1);
+    const second = sync.push();
+    await new Promise((ok) => setTimeout(ok, 10));
+    release();
+    await second;
+    expect(parseTasks(r.files["data/tasks.json"]).map((t) => t.id)).toEqual(["a", "b"]);
+  });
+});
+
 describe("unpushed count while not connected (session 12)", () => {
   it("counts files waiting for the first push, not edits", async () => {
     const down = () => Promise.reject(new Error("not connected"));
@@ -107,5 +158,79 @@ describe("unpushed count while not connected (session 12)", () => {
     await sync.saveEvent(ev({ id: "e1" }));
     await sync.saveEvent(ev({ id: "e2" })); // same month file
     expect(sync.status().unpushed).toBe(one + 1);
+  });
+});
+
+describe("private re-check on pull (handoff §2-5)", () => {
+  const setup = (isPrivate: () => Promise<boolean>) => {
+    const r = fakeRemote({ "data/tasks.json": "[]\n" });
+    const puts: string[] = [];
+    const put = r.remote.put;
+    r.remote.put = async (...a) => (puts.push(a[0]), put(...a));
+    r.remote.isPrivate = isPrivate;
+    const sync = createSync({ remote: r.remote, local: memLocal(), now: () => at("2026-11-15T09:00:00+09:00"), debounceMs: 3_600_000 });
+    return { sync, puts };
+  };
+
+  it("repo turned public: pull flags it and nothing is pushed", async () => {
+    const { sync, puts } = setup(async () => false);
+    await sync.load();
+    await sync.saveTask(task({ id: "a" }));
+    await sync.syncNow();
+    await sync.push();
+    expect(sync.status().publicRepo).toBe(true);
+    expect(puts).toEqual([]);
+    expect(sync.status().unpushed).toBeGreaterThan(0);
+  });
+
+  it("repo private again: next pull clears the flag and pushes the waiting edit", async () => {
+    let priv = false;
+    const { sync, puts } = setup(async () => priv);
+    await sync.load();
+    await sync.saveTask(task({ id: "a" }));
+    await sync.syncNow();
+    expect(sync.status().publicRepo).toBe(true);
+    priv = true;
+    await sync.syncNow();
+    expect(sync.status().publicRepo).toBe(false);
+    expect(puts).toContain("data/tasks.json");
+  });
+
+  it("private repo: sync works as before", async () => {
+    const { sync, puts } = setup(async () => true);
+    await sync.load();
+    await sync.saveTask(task({ id: "a" }));
+    await sync.syncNow();
+    expect(sync.status().publicRepo).toBe(false);
+    expect(puts).toContain("data/tasks.json");
+  });
+
+  it("check fails (offline): counts as offline, not as public", async () => {
+    const { sync } = setup(() => Promise.reject(new Error("net")));
+    await sync.load();
+    await sync.syncNow();
+    expect(sync.status().state).toBe("offline");
+    expect(sync.status().publicRepo).toBe(false);
+  });
+});
+
+describe("upcoming.json duplicate PUT (handoff §2-8)", () => {
+  const run = async (times: string[]) => {
+    const r = fakeRemote({ "data/tasks.json": "[]\n" });
+    const puts: string[] = [];
+    const put = r.remote.put;
+    r.remote.put = async (...a) => (puts.push(a[0]), put(...a));
+    let i = 0;
+    const sync = createSync({ remote: r.remote, local: memLocal(), now: () => at(times[Math.min(i, times.length - 1)]), debounceMs: 3_600_000 });
+    await sync.load();
+    for (; i < times.length; i++) await sync.syncNow();
+    return puts.filter((p) => p === "upcoming.json").length;
+  };
+
+  it("same content, same day: only the first sync writes it", async () => {
+    expect(await run(["2026-11-15T09:00:00+09:00", "2026-11-15T09:05:00+09:00", "2026-11-15T20:00:00+09:00"])).toBe(1);
+  });
+  it("a new day writes it again even if nothing else changed (generatedAt must be today)", async () => {
+    expect(await run(["2026-11-15T09:00:00+09:00", "2026-11-16T07:00:00+09:00"])).toBe(2);
   });
 });
