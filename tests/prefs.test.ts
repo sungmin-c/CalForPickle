@@ -25,6 +25,12 @@ describe("normalizeSettings", () => {
     });
   });
 
+  it("cellPopover is kept only when exactly true", () => {
+    expect(normalizeSettings('{"cellPopover": true}').cellPopover).toBe(true);
+    expect("cellPopover" in normalizeSettings('{"cellPopover": "yes"}')).toBe(false);
+    expect("cellPopover" in normalizeSettings("{}")).toBe(false);
+  });
+
   it("clamps and rounds opacity, rejects wrong types", () => {
     expect(normalizeSettings('{"opacity": -5}').opacity).toBe(MIN_OPACITY);
     expect(normalizeSettings('{"opacity": 10}').opacity).toBe(10);

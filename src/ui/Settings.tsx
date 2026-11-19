@@ -17,6 +17,7 @@ export function SettingsDialog(p: {
   onClearLocal: () => Promise<void>;
   onAutostart: (v: boolean) => void;
   onLang: (l: Lang) => void;
+  onCellPopover: (v: boolean) => void;
   /** `save` is false while dragging (preview only) and true when the value is committed. */
   onOpacity: (v: number, save: boolean) => void;
   onClose: () => void;
@@ -125,6 +126,16 @@ export function SettingsDialog(p: {
           <p id="set-opacity-hint" class="note">{tr.opacityHint}</p>
         </div>
         <p class="note">{tr.trayNote}</p>
+      </section>
+
+      <section class="field">
+        <span id="set-cell" class="legend">{tr.cellMemo}</span>
+        <div class="seg" role="group" aria-labelledby="set-cell" aria-describedby="set-cell-hint">
+          {([[false, tr.cellMemoDialog], [true, tr.cellMemoPopover]] as [boolean, string][]).map(([v, l]) => (
+            <button key={String(v)} type="button" aria-pressed={!!p.settings.cellPopover === v} onClick={() => p.onCellPopover(v)}>{l}</button>
+          ))}
+        </div>
+        <p id="set-cell-hint" class="note">{tr.cellMemoHint}</p>
       </section>
 
       <section aria-labelledby="set-local">

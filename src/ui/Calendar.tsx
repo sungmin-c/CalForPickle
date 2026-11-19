@@ -29,6 +29,8 @@ export function Calendar(p: {
   onSaveTasks: (t: Task[]) => void;
   onOpen: (e: Event) => void;
   onEditing: (on: boolean) => void;
+  /** Edit a day in a popover over its cell instead of a dialog. */
+  popover: boolean;
 }) {
   const days = p.view === "month" ? monthDays(p.sel) : weekDays(p.sel);
   const month = p.sel.slice(0, 7);
@@ -44,7 +46,10 @@ export function Calendar(p: {
   const refocus = useRef(false);
   // The cell being edited and which line gets the caret ("end" = a new blank line at the bottom).
   const [editing, setEditing] = useState<{ day: string; at: number | "end" } | null>(null);
-  useEffect(() => p.onEditing(editing !== null), [editing !== null]);
+  // Only the dialog needs the window above the icons; raising it for the popover would hide every icon behind the calendar.
+  useEffect(() => p.onEditing(editing !== null && !p.popover), [editing !== null, p.popover]);
+  // A greyed day of another month can be edited, but must not switch the month, so it is not selected.
+  const pick = (d: string) => p.view === "month" && d.slice(0, 7) !== month || p.onSelect(d);
 
   // Rows shown per cell. null = render every row, measure them in the layout effect, then cut (before paint).
   const grid = useRef<HTMLDivElement>(null);
@@ -112,8 +117,11 @@ export function Calendar(p: {
           const lines = dayList(p.tasks, d);
           const edit = editing?.day === d ? editing : null;
           const holiday = lang === "en" ? usHolidayName(d) : holidayName(d);
+          // The popover grows away from the calendar's edges: right columns open leftward, bottom rows open upward.
+          const rows = days.length / 7;
           const cls = ["cell", active && "sel", d === p.today && "today", holiday && "hol", p.view === "month" && d.slice(0, 7) !== month && "out",
-            i % 7 === 0 && "c0", i % 7 === 6 && "c6"];
+            edit && p.popover && "pop", i % 7 === 0 && "c0", i % 7 >= 5 && "east", i % 7 === 6 && "c6", rows > 2 && i >= days.length - 14 && "south",
+            i >= days.length - 7 && "last"];
           const chip = (e: Event, t: number) => (
             <li key={`${e.id}:${e.start}`}>
               <button type="button" class={`chip${e.allDay ? " all" : ""}`} tabIndex={t}
@@ -124,7 +132,7 @@ export function Calendar(p: {
               </button>
             </li>
           );
-          const open = () => (p.onSelect(d), setEditing({ day: d, at: "end" }));
+          const open = () => (pick(d), setEditing({ day: d, at: "end" }));
           // Events, then tasks (open before done): what doesn't fit is cut from the end, so done tasks go first.
           const items = [...list.map((e) => chip(e, tab)), ...lines.map((t, i) => (
             <li key={`t:${t.id}`} data-i={i} class={t.status === "done" ? "line done" : "line"}>
@@ -142,9 +150,11 @@ export function Calendar(p: {
           return (
             // Single click does nothing (session 9); double click opens the memo. Enter on the day button is the keyboard equivalent.
             <div key={d} class={cls.filter(Boolean).join(" ")}
+              // Popover: clicks in the memo must not pull focus out of the lines (that would end the edit).
+              onMouseDown={(x) => edit && p.popover && !(x.target as HTMLElement).closest("input") && x.preventDefault()}
               onDblClick={(x) => {
-                if (edit || (p.view === "month" && d.slice(0, 7) !== month)) return; // a greyed day of another month must not switch the month
-                p.onSelect(d);
+                if (edit) return;
+                pick(d);
                 const li = (x.target as HTMLElement).closest<HTMLElement>("[data-i]");
                 setEditing({ day: d, at: li ? Number(li.dataset.i) : "end" });
               }}>
@@ -167,8 +177,8 @@ export function Calendar(p: {
                 )}
               </ul>
               {edit && (
-                // A dialog, so it can sit above the desktop icons; leaving it (Esc, Tab, a click outside) saves like leaving the lines did.
-                <DayEditor key={d} day={d} tasks={lines} at={edit.at} events={list}
+                // Dialog (or popover): it can sit above the desktop icons; leaving it (Esc, Tab, a click outside) saves like leaving the lines did.
+                <DayEditor key={d} day={d} tasks={lines} at={edit.at} events={list} popover={p.popover}
                   onDone={(drafts, refocusDay) => {
                     setEditing(null);
                     const changed = commitDay(d, lines, drafts);
@@ -186,7 +196,7 @@ export function Calendar(p: {
 }
 
 /** One input per line, bound to the task id, so an edit never has to guess which task a line was. Ends on Esc, Tab or focus leaving the lines. */
-function DayEditor(p: { day: string; tasks: Task[]; events: Event[]; at: number | "end"; onDone: (d: Draft[], refocusDay: boolean) => void }) {
+function DayEditor(p: { day: string; tasks: Task[]; events: Event[]; at: number | "end"; popover: boolean; onDone: (d: Draft[], refocusDay: boolean) => void }) {
   const blank = (): Draft => ({ id: crypto.randomUUID(), title: "", done: false });
   const [rows, setRows] = useState<Draft[]>(() => {
     const r = p.tasks.map((t) => ({ id: t.id, title: t.title, done: t.status === "done" }));
@@ -209,7 +219,8 @@ function DayEditor(p: { day: string; tasks: Task[]; events: Event[]; at: number 
   // New lines take focus before paint, or fast typing lands in the old line. The dialog opens in Modal's effect, so the
   // first focus waits for that (focus() on a closed dialog is ignored).
   useLayoutEffect(() => {
-    if (box.current?.closest("dialog")?.open) place();
+    const dlg = box.current?.closest("dialog");
+    if (!dlg || dlg.open) place();
   }, [rows]);
   useEffect(place, []);
 
@@ -260,8 +271,8 @@ function DayEditor(p: { day: string; tasks: Task[]; events: Event[]; at: number 
     put([...rows.slice(0, i), ...added, ...rows.slice(i + 1)], i + parts.length - 1);
   };
 
-  return (
-    <Modal title={tr.dayHeading(p.day)} onClose={() => finish(true)}>
+  const body = (
+    <>
       {p.events.length > 0 && (
         <ul class="day-events">
           {p.events.map((e) => (
@@ -283,6 +294,14 @@ function DayEditor(p: { day: string; tasks: Task[]; events: Event[]; at: number 
           </li>
         ))}
       </ul>
-    </Modal>
+    </>
+  );
+  return p.popover ? (
+    <div class="memo">
+      <p class="memo-day" aria-hidden="true">{tr.dayHeading(p.day)}</p>
+      {body}
+    </div>
+  ) : (
+    <Modal title={tr.dayHeading(p.day)} onClose={() => finish(true)}>{body}</Modal>
   );
 }

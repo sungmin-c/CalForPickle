@@ -341,7 +341,7 @@ export function App() {
       {/* Unpinned is for moving and resizing only (session 22): the calendar and tasks take no input. */}
       <main class={settings.memoOpen ? "body" : "body no-memo"} inert={!pinned}>
         <Calendar view={view} sel={sel} today={now} events={visibleEvents} tasks={sync.tasks()}
-          onSelect={setSel} onEditing={setCellEdit}
+          onSelect={setSel} onEditing={setCellEdit} popover={!!settings.cellPopover}
           onSaveTasks={(ts) => void Promise.all(ts.map((t) => sync.saveTask(t))).then(bump)}
           // An occurrence is a copy with shifted dates: edit the stored series, remember which day was clicked.
           onOpen={(e) => setEditEvent({ event: sync.events().find((x) => x.id === e.id) ?? e, isNew: false, day: e.start.slice(0, 10) })} />
@@ -373,6 +373,7 @@ export function App() {
             await applyAutostart(v);
             await saveSettings({ autostart: v });
           }}
+          onCellPopover={(v) => void saveSettings({ cellPopover: v })}
           onLang={(l) => {
             applyLang(l);
             void saveSettings({ lang: l });

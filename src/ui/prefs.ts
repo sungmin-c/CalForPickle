@@ -20,6 +20,8 @@ export interface Settings {
   opacity: number;
   /** The first-run note about autostart was dismissed. */
   introSeen?: boolean;
+  /** Double-clicking a day opens its memo in a small popover over the cell instead of a dialog. */
+  cellPopover?: boolean;
   /** The memo panel was left open. */
   memoOpen?: boolean;
   /** Outer position and inner size in physical pixels. */
@@ -51,6 +53,7 @@ export function normalizeSettings(raw: string | null): Settings {
   };
   if (o.introSeen === true) s.introSeen = true;
   if (o.memoOpen === true) s.memoOpen = true;
+  if (o.cellPopover === true) s.cellPopover = true;
   if (typeof o.owner === "string") s.owner = o.owner;
   if (typeof o.repo === "string") s.repo = o.repo;
   const w = o.window;
