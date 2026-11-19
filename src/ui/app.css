@@ -96,6 +96,9 @@ label.check { display: flex; align-items: center; gap: 8px; min-height: 24px; cu
   .bar h1 { margin-left: 4px; }
   .month .chip time { display: none; }
 }
+@media (max-width: 1000px) {
+  .body:not(.no-memo) .month .chip time { display: none; }
+}
 .bar .short, .seg .abbr { display: none; }
 /* 640, not 560: the long week title ("11월 29일 ~ 12월 5일", "Nov 29 – Dec 5") was cut off between 564 and 624px. */
 @media (max-width: 640px) {

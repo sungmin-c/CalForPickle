@@ -43,6 +43,11 @@ describe("24px click targets", () => {
     expect(m).toMatch(/\.month \.chip time\s*\{\s*display:\s*none/);
   });
 
+  // Memo panel (300px) open: cells are (W-300)/7, under ~100px below W=1000.
+  it("hides the time on month chips at <=1000px while the memo panel is open", () => {
+    expect(css).toMatch(/@media \(max-width: 1000px\)\s*\{\s*\.body:not\(\.no-memo\) \.month \.chip time\s*\{\s*display:\s*none/);
+  });
+
   it.each(["Calendar.tsx", "Tasks.tsx"])("every checkbox in %s sits inside label.hit", (file) => {
     const src = read(`../src/ui/${file}`);
     const boxes = src.match(/type="checkbox"/g)?.length ?? 0;
