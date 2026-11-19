@@ -27,7 +27,6 @@ export function Calendar(p: {
   onSelect: (d: string) => void;
   onSaveTasks: (t: Task[]) => void;
   onOpen: (e: Event) => void;
-  onEditing: (on: boolean) => void;
 }) {
   const days = p.view === "month" ? monthDays(p.sel) : weekDays(p.sel);
   const month = p.sel.slice(0, 7);
@@ -43,7 +42,6 @@ export function Calendar(p: {
   const refocus = useRef(false);
   // The cell being edited and which line gets the caret ("end" = a new blank line at the bottom).
   const [editing, setEditing] = useState<{ day: string; at: number | "end" } | null>(null);
-  useEffect(() => p.onEditing(editing !== null), [editing !== null]);
 
   // Rows shown per cell. null = render every row, measure them in the layout effect, then cut (before paint).
   const grid = useRef<HTMLDivElement>(null);

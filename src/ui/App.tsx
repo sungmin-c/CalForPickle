@@ -95,9 +95,9 @@ export function App() {
   const [editEvent, setEditEvent] = useState<{ event: Event; isNew: boolean; day?: string } | null>(null);
   const [editTask, setEditTask] = useState<Task | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [cellEdit, setCellEdit] = useState(false);
-  // Under the icons the page gets no mouse moves and an icon can cover a dialog: while editing, sit above them (desktop.rs).
-  const editing = !!(editEvent || editTask || showSettings || cellEdit);
+  // Under the icons the page gets no mouse moves and an icon can cover a dialog: while one is open, sit above them (desktop.rs).
+  // Not for the inline cell memo: raising the window would hide every icon behind the whole calendar.
+  const editing = !!(editEvent || editTask || showSettings);
   useEffect(() => void invoke("desktop_raise", { on: editing }).catch(() => {}), [editing, settings.alwaysBottom]);
   const [syncing, setSyncing] = useState(false);
   const [fatal, setFatal] = useState("");
@@ -341,7 +341,7 @@ export function App() {
       {/* Unpinned is for moving and resizing only (session 22): the calendar and tasks take no input. */}
       <main class={settings.memoOpen ? "body" : "body no-memo"} inert={!pinned}>
         <Calendar view={view} sel={sel} today={now} events={visibleEvents} tasks={sync.tasks()}
-          onSelect={setSel} onEditing={setCellEdit}
+          onSelect={setSel}
           onSaveTasks={(ts) => void Promise.all(ts.map((t) => sync.saveTask(t))).then(bump)}
           // An occurrence is a copy with shifted dates: edit the stored series, remember which day was clicked.
           onOpen={(e) => setEditEvent({ event: sync.events().find((x) => x.id === e.id) ?? e, isNew: false, day: e.start.slice(0, 10) })} />
