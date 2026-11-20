@@ -46,6 +46,7 @@ unsafe extern "system" {
     fn GetClassNameW(h: H, buf: *mut u16, n: i32) -> i32;
     fn SetFocus(h: H) -> H;
     fn GetForegroundWindow() -> H;
+    fn SetForegroundWindow(h: H) -> i32;
 }
 
 #[link(name = "kernel32")]
@@ -263,7 +264,14 @@ fn send(h: H, down: bool, x: i32, y: i32, dbl: bool) {
     let a = app.clone();
     let _ = app.run_on_main_thread(move || {
         if !down {
-            unsafe { SetFocus(h) }; // wry hands focus on to WebView2; works because a child shares explorer's input queue
+            unsafe {
+                // Over our window explorer doesn't make the desktop the active window (measured: Chrome stayed in front
+                // for 1.5 s after a double-click), so typed keys went to that app. Do it here, then focus the page.
+                if !desktop_active() {
+                    SetForegroundWindow(FindWindowW(wide("Progman").as_ptr(), null()));
+                }
+                SetFocus(h) // wry hands focus on to WebView2; works because a child shares explorer's input queue
+            };
         }
         let _ = a.emit("desktop-mouse", (if down { "down" } else { "up" }, x, y, dbl));
     });
