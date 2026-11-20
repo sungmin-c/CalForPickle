@@ -53,6 +53,9 @@ export function newEvent(day: string): Event {
   };
 }
 
+/** Dot colors on offer, in tr.colorNames order. model.ts keeps colors upper-case. */
+const SWATCHES = ["#F12424", "#F28C1E", "#E6B800", "#1A7F37", "#1CA9A9", "#2456B8", "#8A4FFF", "#E0489B"];
+
 export function EventDialog(p: {
   event: Event; isNew: boolean; day?: string; routines: Event[]; ended: Set<string>;
   onPick: (e: Event) => void; onSave: (e: Event) => void; onClose: () => void;
@@ -65,6 +68,7 @@ export function EventDialog(p: {
     const form = toForm(p.event);
     return p.isNew ? { ...form, endDate: form.startDate } : form;
   });
+  const [color, setColor] = useState(p.event.color);
   const [error, setError] = useState("");
   const set = (k: keyof EventForm) => (e: Input) => setF({ ...f, [k]: e.currentTarget.value });
 
@@ -72,6 +76,8 @@ export function EventDialog(p: {
     ev.preventDefault();
     const out = fromForm(f, p.event);
     if (typeof out === "string") return setError(out);
+    if (color) out.color = color;
+    else delete out.color;
     p.onSave(out);
   };
 
@@ -84,6 +90,17 @@ export function EventDialog(p: {
         {p.event.recurrence && (
           <p class="hint">{tr.repeats(describeRule(p.event.recurrence, p.event.start, p.event.tz))}</p>
         )}
+        <div class="field" role="group" aria-labelledby="ev-color">
+          <span id="ev-color" class="legend">{tr.color}</span>
+          <div class="swatches">
+            <button type="button" class="swatch none" aria-pressed={!color} aria-label={tr.noColor} title={tr.noColor} onClick={() => setColor(undefined)} />
+            {/* A color Pickle wrote that isn't in the palette stays selectable. */}
+            {[...(color && !SWATCHES.includes(color) ? [color] : []), ...SWATCHES].map((c) => (
+              <button key={c} type="button" class="swatch" style={{ background: c }} aria-pressed={color === c}
+                aria-label={tr.colorNames[SWATCHES.indexOf(c)] ?? c} title={tr.colorNames[SWATCHES.indexOf(c)] ?? c} onClick={() => setColor(c)} />
+            ))}
+          </div>
+        </div>
         <label class="check">
           <input type="checkbox" checked={f.allDay} onChange={(e) => setF({ ...f, allDay: e.currentTarget.checked })} />
           {tr.allDay}

@@ -151,7 +151,8 @@ export function Calendar(p: {
             // Single click does nothing; double click opens the memo. Enter on the day button is the keyboard equivalent.
             <div key={d} class={cls.filter(Boolean).join(" ")}
               // Popover: clicks in the memo must not pull focus out of the lines (that would end the edit).
-              onMouseDown={(x) => edit && p.popover && !(x.target as HTMLElement).closest("input") && x.preventDefault()}
+              // A checkbox click must not take the caret from the text line either.
+              onMouseDown={(x) => edit && p.popover && !(x.target as HTMLElement).closest("input[type=text]") && x.preventDefault()}
               onDblClick={(x) => {
                 if (edit) return;
                 pick(d);
@@ -207,6 +208,16 @@ function DayEditor(p: { day: string; tasks: Task[]; events: Event[]; at: number 
   const closed = useRef(false); // Esc refocuses the day button, which fires focusout: end the edit once
   const latest = useRef(rows);
   latest.current = rows;
+
+  const memo = useRef<HTMLDivElement>(null);
+  // Popover: it ends only on Esc, Tab or a press outside it. Not on focus leaving the lines: a pinned window loses focus to
+  // explorer on every click inside it (desktop.rs hands it back on release), and that blur used to close the popover.
+  useEffect(() => {
+    if (!p.popover) return;
+    const out = (ev: MouseEvent) => memo.current && !memo.current.contains(ev.target as Node) && finish(false);
+    document.addEventListener("mousedown", out, true);
+    return () => document.removeEventListener("mousedown", out, true);
+  }); // every render: finish must see the current tasks
 
   const input = (i: number) => box.current?.querySelectorAll<HTMLInputElement>("input[type=text]")[i];
   const place = () => {
@@ -281,7 +292,7 @@ function DayEditor(p: { day: string; tasks: Task[]; events: Event[]; at: number 
         </ul>
       )}
       <ul class="lines editing" ref={box}
-        onFocusOut={(ev) => !box.current?.contains(ev.relatedTarget as Node | null) && finish(false)}>
+        onFocusOut={(ev) => !p.popover && !box.current?.contains(ev.relatedTarget as Node | null) && finish(false)}>
         {rows.map((r, i) => (
           <li key={r.id} class={r.done ? "done" : undefined}>
             <label class="hit">
@@ -297,7 +308,7 @@ function DayEditor(p: { day: string; tasks: Task[]; events: Event[]; at: number 
     </>
   );
   return p.popover ? (
-    <div class="memo">
+    <div class="memo" ref={memo}>
       <p class="memo-day" aria-hidden="true">{tr.dayHeading(p.day)}</p>
       {body}
     </div>
