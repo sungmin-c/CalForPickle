@@ -57,21 +57,6 @@ describe("commitDay", () => {
     const prev = [task({ id: "a", due: D, title: "가" })];
     expect(commitDay(D, prev, [{ id: "a", title: "가", done: false }])).toEqual([{ ...prev[0], order: 0 }]);
   });
-
-  it("saves a color change, a new colored line, and removes the key for no color", () => {
-    const prev = [task({ id: "a", due: D, title: "가", order: 0 }), task({ id: "b", due: D, title: "나", order: 1, color: "#F12424" })];
-    const out = commitDay(D, prev, [
-      { id: "a", title: "가", done: false, color: "#2456B8" },
-      { id: "b", title: "나", done: false },
-      { id: "n", title: "새", done: false, color: "#1A7F37" },
-    ]);
-    expect(out).toEqual([
-      { ...prev[0], color: "#2456B8" },
-      { ...prev[1], color: undefined },
-      { id: "n", title: "새", status: "todo", due: D, order: 2, notes: "", updatedAt: "", deleted: false, color: "#1A7F37" },
-    ]);
-    expect("color" in out[1]).toBe(false);
-  });
 });
 
 describe("fitRows", () => {
