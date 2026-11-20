@@ -1,4 +1,4 @@
-// Local time zone (session 23): screen, input and storage follow the PC's zone. New York covers DST; Seoul has none.
+// Local time zone: screen, input and storage follow the PC's zone. New York covers DST; Seoul has none.
 import { afterEach, describe, expect, it } from "vitest";
 import { at, dateIn, offsetMin, setZone, stampIn, ZONE } from "../src/zone";
 import { describeRule, expand } from "../src/recur";

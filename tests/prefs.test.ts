@@ -72,7 +72,7 @@ describe("fitsOnScreen", () => {
 });
 
 // Translucent mode: the background can go down to MIN_OPACITY. The --bg outline round glyphs and controls
-// (session 11) was dropped in session 16, so over a wallpaper contrast is up to the slider; the colours that mode
+// was dropped, so over a wallpaper contrast is up to the slider; the colours that mode
 // switches to still have to work on the opaque --bg.
 describe("translucent mode colours", () => {
   const [light, dark] = css.split("@media (prefers-color-scheme: dark)").map(tokens);

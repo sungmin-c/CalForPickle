@@ -50,7 +50,7 @@ async function restoreWindow(s: Settings) {
   }
 }
 
-/** Pinned: on the desktop under the icons, fixed in place, clicked through wherever no icon covers it (desktop.rs, session 22).
+/** Pinned: on the desktop under the icons, fixed in place, clicked through wherever no icon covers it (desktop.rs).
  *  Unpinned: an ordinary window for moving and resizing only.
  *  Resizable changes go while the window is top-level: tao rewrites the window style on every flag change. */
 async function applyPin(on: boolean) {
@@ -151,7 +151,7 @@ export function App() {
     // Save position and size 0.5 s after moving or resizing stops. Minimized/maximized geometry is not a place to come back to.
     let timer: ReturnType<typeof setTimeout> | undefined;
     const onGeometry = () => {
-      // Pinned, the window is a child of the desktop and its rect reads back scaled (session 21): never save it.
+      // Pinned, the window is a child of the desktop and its rect reads back scaled: never save it.
       // Before startup finishes, prefs still hold the defaults (unpinned): a recreated window saved its child rect that way.
       if (prefs.current.alwaysBottom || !last) return;
       setOffScreen(false);
@@ -338,7 +338,7 @@ export function App() {
       <Notices live={live} state={status.state} held={status.held} clockSkew={status.clockSkew} publicRepo={status.publicRepo} error={status.error}
         extra={[...(offScreen ? [tr.offScreen] : []), ...(pinned ? [] : [tr.moveMode])]} />
 
-      {/* Unpinned is for moving and resizing only (session 22): the calendar and tasks take no input. */}
+      {/* Unpinned is for moving and resizing only: the calendar and tasks take no input. */}
       <main class={settings.memoOpen ? "body" : "body no-memo"} inert={!pinned}>
         <Calendar view={view} sel={sel} today={now} events={visibleEvents} tasks={sync.tasks()}
           onSelect={setSel} onEditing={setCellEdit} popover={!!settings.cellPopover}

@@ -62,7 +62,7 @@ describe("event form round trip", () => {
   });
 });
 
-describe("longDate: Korean reading of a date input (session 12)", () => {
+describe("longDate: Korean reading of a date input", () => {
   it("spells year, month, day and weekday", () => {
     expect(longDate("2026-02-01")).toBe("2026년 2월 1일 (일)");
     expect(longDate("2026-11-21")).toBe("2026년 11월 21일 (토)");

@@ -21,7 +21,7 @@ function meta(t: Task, today: string): { text: string; late: boolean } {
 
 export function TaskPanel(p: { tasks: Task[]; today: string; onSave: (t: Task) => void; onOpen: (t: Task) => void }) {
   const [title, setTitle] = useState("");
-  // Dated tasks live in their day cell (session 7); the panel keeps only the undated ones.
+  // Dated tasks live in their day cell; the panel keeps only the undated ones.
   const live = p.tasks.filter((t) => !t.deleted && !t.due);
   const open = live.filter((t) => t.status !== "done").sort(order);
   const done = live.filter((t) => t.status === "done").sort((a, b) => cmp(b.updatedAt, a.updatedAt));

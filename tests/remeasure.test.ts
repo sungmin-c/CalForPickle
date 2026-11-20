@@ -7,7 +7,7 @@ const app = read("../src/ui/App.tsx");
 const cal = read("../src/ui/Calendar.tsx");
 
 // Calendar re-measures every cell (render all rows, measure, render again) whenever `events` changes identity
-// or the grid resizes. Session 40 measured both firing needlessly: a day arrow key, and every frame of the
+// or the grid resizes. Measured both firing needlessly: a day arrow key, and every frame of the
 // 0.2s memo panel transition (12 passes, frames up to 150ms with 1,638 tasks).
 describe("calendar re-measure", () => {
   it("App passes a memoized events array, not a fresh filter() per render", () => {

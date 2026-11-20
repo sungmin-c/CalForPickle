@@ -68,7 +68,7 @@ export function holidayName(d: string): string | undefined {
   return cache.get(y)!.get(d);
 }
 
-// US federal holidays (English, session 23): 5 fixed days with observed days, 6 weekday rules.
+// US federal holidays (English): 5 fixed days with observed days, 6 weekday rules.
 const US_FIXED: [string, string][] = [
   ["01-01", "New Year's Day"], ["06-19", "Juneteenth"], ["07-04", "Independence Day"], ["11-11", "Veterans Day"], ["12-25", "Christmas Day"],
 ];

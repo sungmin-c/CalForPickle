@@ -68,7 +68,7 @@ label.check { display: flex; align-items: center; gap: 8px; min-height: 24px; cu
 .app:hover { box-shadow: inset 0 0 0 1px var(--strong); }
 .app.pinned:hover { box-shadow: none; } /* pinned windows don't resize */
 /* Translucent, down to 0%: any wallpaper can show through. Weak text colours give way to the strong ones.
-   No outline round glyphs or controls (dropped in session 16: it looked off); readability over the wallpaper is
+   No outline round glyphs or controls (dropped: it looked off); readability over the wallpaper is
    the user's call with the opacity slider. Dialogs and the memo are opaque and keep the normal palette. */
 .clear > :not(dialog) { --muted: var(--text); --accent: var(--accent-clear); }
 .fatal { padding: 24px; min-height: 100%; background: var(--bg); }
@@ -107,7 +107,7 @@ label.check { display: flex; align-items: center; gap: 8px; min-height: 24px; cu
 }
 @media (max-width: 560px) {
   .bar { gap: 4px; }
-  .bar button.icon { width: 24px; } /* "11.29 – 12.5" needs this room at the 480px minimum, with the pin button (session 19) */
+  .bar button.icon { width: 24px; } /* "11.29 – 12.5" needs this room at the 480px minimum, with the pin button */
 }
 /* English "Routine"/"Today" are wider than the Korean words: "11/29 – 12/5" fits at 480px only with tighter gaps. */
 @media (max-width: 520px) {

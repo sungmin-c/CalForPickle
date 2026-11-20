@@ -60,7 +60,7 @@ const { merged, counts } = planMerge(local, tasks);
 const text = serializeTasks(merged);
 const bytes = Buffer.byteLength(text);
 
-// Events (session 7): status-2 rows are skipped (R6), the rest become all-day series merged LWW into local month files.
+// Events: status-2 rows are skipped (R6), the rest become all-day series merged LWW into local month files.
 const events: Event[] = [];
 for (const r of evRows) {
   try {

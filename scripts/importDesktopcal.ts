@@ -45,7 +45,7 @@ export function cleanTitle(line: string): string {
 
 const FONT = /^\s*<font color="(#[0-9A-Fa-f]{6})">([\s\S]*)<\/font>\s*$/;
 
-/** The source app colors a whole title by wrapping it in one <font color>; that becomes the color key (session 9). Partial or other markup stays as typed. */
+/** The source app colors a whole title by wrapping it in one <font color>; that becomes the color key. Partial or other markup stays as typed. */
 export function fontColor(title: string): { title: string; color?: string } {
   const m = FONT.exec(title);
   return m && !/<\/?font/.test(m[2]) ? { title: m[2].trim(), color: m[1].toUpperCase() } : { title };
@@ -124,7 +124,7 @@ export interface EventRow {
 // Source key → RRULE key, in the order they are written.
 const RULE_KEYS: [string, string][] = [["FREQ", "FREQ"], ["BYMONTH", "BYMONTH"], ["BYMONTHDAY", "BYMONTHDAY"], ["BYWEEK", "BYDAY"], ["COUNT", "COUNT"], ["UNTIL", "UNTIL"]];
 
-/** One source event as an all-day series (R1~R6, session 7). Status 2 events are skipped (R6); meaning unknown, user chose to drop them. */
+/** One source event as an all-day series (R1~R6). Status 2 events are skipped (R6); meaning unknown, user chose to drop them. */
 export async function sourceEvent(row: EventRow): Promise<Event | null> {
   if (row.status === 2) return null;
   const rule = (JSON.parse(row.rec) as { RRULE: Record<string, string | number> }).RRULE;

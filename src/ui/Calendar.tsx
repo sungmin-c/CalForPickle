@@ -148,7 +148,7 @@ export function Calendar(p: {
           const n = fit?.[d] ?? items.length;
           const label = tr.dayLabel(d, d === p.today, holiday, list.length, lines.length);
           return (
-            // Single click does nothing (session 9); double click opens the memo. Enter on the day button is the keyboard equivalent.
+            // Single click does nothing; double click opens the memo. Enter on the day button is the keyboard equivalent.
             <div key={d} class={cls.filter(Boolean).join(" ")}
               // Popover: clicks in the memo must not pull focus out of the lines (that would end the edit).
               onMouseDown={(x) => edit && p.popover && !(x.target as HTMLElement).closest("input") && x.preventDefault()}

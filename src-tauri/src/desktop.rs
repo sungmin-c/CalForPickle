@@ -1,5 +1,5 @@
 //! Pinned = a child of Progman placed right under the icon layer (SHELLDLL_DefView), above the wallpaper WorkerW:
-//! untouched by Win+D (session 22). The icon layer takes every click there, so a low-level mouse hook passes left
+//! untouched by Win+D. The icon layer takes every click there, so a low-level mouse hook passes left
 //! clicks on empty desktop over the window to the page, which replays them on the element under the pointer. Only
 //! clicks go across (no hover, no dragging). While a dialog or an edit is open the page asks for desktop_raise: the
 //! window goes above the icons, so it gets real mouse input (a slider drags, nothing is covered by an icon).
@@ -68,7 +68,7 @@ const LVM_GETHOTITEM: u32 = 0x1000 + 61;
 struct State {
     pinned: bool,
     hwnd: H,
-    /// Screen rect taken while the window was still top-level (child rects come back scaled 1.5x, session 21).
+    /// Screen rect taken while the window was still top-level (child rects come back scaled 1.5x).
     rect: Rect,
     /// Top-level style to restore when detaching.
     style: isize,

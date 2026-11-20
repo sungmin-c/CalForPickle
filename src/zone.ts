@@ -1,4 +1,4 @@
-// Time zones (session 23): the screen, input and new stamps follow the PC's zone, read once at startup.
+// Time zones: the screen, input and new stamps follow the PC's zone, read once at startup.
 // A zone is an IANA name ("America/New_York") or a fixed offset ("+09:00", "Z") taken from a stored stamp.
 
 /** The PC's zone. Changing the Windows zone needs an app restart. */

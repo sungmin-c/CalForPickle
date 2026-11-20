@@ -1,4 +1,4 @@
-// One-time cleanup (session 9): titles imported before fontColor existed still carry <font color>. Moves it to the color key.
+// One-time cleanup: titles imported before fontColor existed still carry <font color>. Moves it to the color key.
 // Usage: npx rolldown scripts/fixFontTitles.cli.ts -o <tmp>/fix.mjs -p node -f esm && node <tmp>/fix.mjs [--write]
 // Default is a dry run. Prints counts only, never titles. Touches %APPDATA%\CalForPickle only, never the network.
 import { execFileSync } from "node:child_process";

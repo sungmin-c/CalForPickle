@@ -143,7 +143,7 @@ describe("saves no longer wait for the network queue (handoff §1-A)", () => {
   });
 });
 
-describe("unpushed count while not connected (session 12)", () => {
+describe("unpushed count while not connected", () => {
   it("counts files waiting for the first push, not edits", async () => {
     const down = () => Promise.reject(new Error("not connected"));
     const remote: Remote = { get: down, list: down, put: down };

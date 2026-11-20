@@ -28,7 +28,7 @@ describe("24px click targets", () => {
     expect(rule(sel)).toMatch(/margin-block:\s*-2px/);
   });
 
-  // Measured in Chromium (session 39): with plain `overflow: hidden` the 2px overhang of the first row is clipped, so its
+  // Measured in Chromium: with plain `overflow: hidden` the 2px overhang of the first row is clipped, so its
   // click area was 22px. `clip` + `overflow-clip-margin` lets the overhang through without changing layout.
   it(".items does not clip the 2px click-area overhang of the first and last row", () => {
     const body = rule(".cell .items");

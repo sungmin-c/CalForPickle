@@ -1,4 +1,4 @@
-// Screen text in Korean and English (session 23). No library: one table per language, same keys (tests/i18n.test.ts).
+// Screen text in Korean and English. No library: one table per language, same keys (tests/i18n.test.ts).
 // Not translated: AGENT_GUIDE.md (repo file for agents), user content, the tray before the page loads.
 
 export type Lang = "ko" | "en";

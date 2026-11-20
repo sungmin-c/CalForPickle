@@ -45,7 +45,7 @@ export function normalizeSettings(raw: string | null): Settings {
   const o = isObj(v) ? v : {};
   const s: Settings = {
     alwaysBottom: o.alwaysBottom === true,
-    autostart: o.autostart === true, // off until the user turns it on (session 10): installing must not register a startup entry
+    autostart: o.autostart === true, // off until the user turns it on: installing must not register a startup entry
     lang: o.lang === "en" ? "en" : "ko",
     opacity: typeof o.opacity === "number" && Number.isFinite(o.opacity)
       ? Math.min(100, Math.max(MIN_OPACITY, Math.round(o.opacity)))

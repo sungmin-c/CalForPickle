@@ -71,7 +71,7 @@ describe("title cleanup", () => {
   });
 });
 
-describe("font color (session 9)", () => {
+describe("font color", () => {
   it("a title wrapped in one <font color> becomes plain text + color; anything else is left as typed", () => {
     expect(fontColor('<font color="#f12424">회의 101</font>')).toEqual({ title: "회의 101", color: "#F12424" });
     expect(fontColor("  <font color=\"#00FF00\"> a </font> ")).toEqual({ title: "a", color: "#00FF00" });
@@ -150,7 +150,7 @@ describe("LWW against the existing local copy", () => {
   });
 });
 
-describe("recurring events (session 7, R1~R6)", () => {
+describe("recurring events (R1~R6)", () => {
   const q = (s: string) => s.replace(/"/g, "|&quot;|");
   const row = (o: Partial<EventRow> = {}): EventRow => ({
     uid: "event-20250101-000000-000-0",
