@@ -6,6 +6,7 @@ export interface Draft {
   id: string;
   title: string;
   done: boolean;
+  color?: string;
 }
 
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -33,8 +34,10 @@ export function commitDay(day: string, original: Task[], drafts: Draft[]): Task[
     const next: Task = prev
       ? { ...prev, title, status, order }
       : { id: d.id, title, status, due: day, order, notes: "", updatedAt: "", deleted: false };
+    if (d.color) next.color = d.color;
+    else delete next.color;
     order++;
-    if (!prev || prev.title !== next.title || prev.status !== next.status || prev.order !== next.order) out.push(next);
+    if (!prev || prev.title !== next.title || prev.status !== next.status || prev.order !== next.order || prev.color !== next.color) out.push(next);
   }
   for (const t of original) if (!kept.has(t.id)) out.push({ ...t, deleted: true });
   return out;

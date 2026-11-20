@@ -147,8 +147,6 @@ label.check { display: flex; align-items: center; gap: 8px; min-height: 24px; cu
 
 .cell { display: flex; flex-direction: column; gap: 4px; padding: 8px; min-width: 0; min-height: 0; overflow: hidden; cursor: text; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .cell:nth-child(7n) { border-right: 0; }
-/* Only keyboard focus or editing shows the selected day; after a mouse click on prev/next the same day number must not look picked. */
-.cell.sel:has(:focus-visible) { background: var(--tone); box-shadow: inset 0 0 0 2px var(--muted); }
 .day {
   align-self: flex-start; min-height: 28px; min-width: 28px; padding: 0 6px; border: 0; border-radius: 999px;
   font-variant-numeric: tabular-nums; font-weight: 500;
@@ -228,6 +226,18 @@ label.check { display: flex; align-items: center; gap: 8px; min-height: 24px; cu
 @media (prefers-reduced-motion: reduce) { .memo { animation: none; } }
 .day-events { margin: 0 0 8px; padding: 0; display: grid; gap: 2px; font-size: 13px; color: var(--muted); }
 .day-events li { display: flex; align-items: center; gap: 4px; }
+.ev-open { display: flex; align-items: center; min-height: 24px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.ev-open:hover { text-decoration: underline; }
+.ev-open time { margin-right: 6px; font-variant-numeric: tabular-nums; }
+/* Line color: a dot button before the text opens a swatch row under the line (same palette as the routine dialog). */
+.lines li { display: flex; align-items: center; }
+.lines input[type="text"] { flex: 1; width: auto; min-width: 0; }
+.pick { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 18px; min-height: 0; height: 20px; padding: 0; border: 0; background: none; cursor: pointer; }
+.pick .dot { margin: 0; }
+.dot.none { background: transparent; }
+.swatch-row { padding: 2px 0 4px 24px; }
+.lines .swatches { gap: 6px; }
+.lines .swatch { width: 18px; height: 18px; }
 .more { min-height: 24px; margin-block: -2px; padding: 0 6px; border: solid transparent; border-width: 2px 0; background-clip: padding-box; font-size: 12px; color: var(--muted); }
 /* Checkbox hit area: a 24px label around the 13-16px box. It overlaps the gap after it, so the row layout stays as before. */
 .hit { position: relative; display: inline-flex; align-items: center; flex: none; width: 24px; min-height: 24px; margin-block: -2px; cursor: pointer; }

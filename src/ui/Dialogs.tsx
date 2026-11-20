@@ -54,7 +54,7 @@ export function newEvent(day: string): Event {
 }
 
 /** Dot colors on offer, in tr.colorNames order. model.ts keeps colors upper-case. */
-const SWATCHES = ["#F12424", "#F28C1E", "#E6B800", "#1A7F37", "#1CA9A9", "#2456B8", "#8A4FFF", "#E0489B"];
+export const SWATCHES =["#F12424", "#F28C1E", "#E6B800", "#1A7F37", "#1CA9A9", "#2456B8", "#8A4FFF", "#E0489B"];
 
 export function EventDialog(p: {
   event: Event; isNew: boolean; day?: string; routines: Event[]; ended: Set<string>;

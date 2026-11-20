@@ -1,3 +1,4 @@
+import { Fragment } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { Event, Task } from "../model";
 import { holidayName, usHolidayName } from "../holidays";
@@ -5,7 +6,7 @@ import { lang, tr, type Title } from "../i18n";
 import { expand } from "../recur";
 import { addDays, addMonths, byTime, monthDays, onDay, timeLabel, weekDays } from "./dates";
 import { commitDay, dayList, fitRows, type Draft } from "./dayList";
-import { Modal } from "./Dialogs";
+import { Modal, SWATCHES } from "./Dialogs";
 import { Dot } from "./icons";
 
 export type View = "month" | "week";
@@ -179,7 +180,7 @@ export function Calendar(p: {
               </ul>
               {edit && (
                 // Dialog (or popover): it can sit above the desktop icons; leaving it (Esc, Tab, a click outside) saves like leaving the lines did.
-                <DayEditor key={d} day={d} tasks={lines} at={edit.at} events={list} popover={p.popover}
+                <DayEditor key={d} day={d} tasks={lines} at={edit.at} events={list} popover={p.popover} onOpen={p.onOpen}
                   onDone={(drafts, refocusDay) => {
                     setEditing(null);
                     const changed = commitDay(d, lines, drafts);
@@ -197,10 +198,10 @@ export function Calendar(p: {
 }
 
 /** One input per line, bound to the task id, so an edit never has to guess which task a line was. Ends on Esc, Tab or focus leaving the lines. */
-function DayEditor(p: { day: string; tasks: Task[]; events: Event[]; at: number | "end"; popover: boolean; onDone: (d: Draft[], refocusDay: boolean) => void }) {
+function DayEditor(p: { day: string; tasks: Task[]; events: Event[]; at: number | "end"; popover: boolean; onOpen: (e: Event) => void; onDone: (d: Draft[], refocusDay: boolean) => void }) {
   const blank = (): Draft => ({ id: crypto.randomUUID(), title: "", done: false });
   const [rows, setRows] = useState<Draft[]>(() => {
-    const r = p.tasks.map((t) => ({ id: t.id, title: t.title, done: t.status === "done" }));
+    const r = p.tasks.map((t) => ({ id: t.id, title: t.title, done: t.status === "done", color: t.color }));
     return p.at === "end" || !r.length ? [...r, blank()] : r;
   });
   const box = useRef<HTMLUListElement>(null);
@@ -209,6 +210,7 @@ function DayEditor(p: { day: string; tasks: Task[]; events: Event[]; at: number 
   const latest = useRef(rows);
   latest.current = rows;
 
+  const [picking, setPicking] = useState<string | null>(null); // id of the line whose color swatches are open
   const memo = useRef<HTMLDivElement>(null);
   // Popover: it ends only on Esc, Tab or a press outside it. Not on focus leaving the lines: a pinned window loses focus to
   // explorer on every click inside it (desktop.rs hands it back on release), and that blur used to close the popover.
@@ -242,6 +244,8 @@ function DayEditor(p: { day: string; tasks: Task[]; events: Event[]; at: number 
   };
   const put = (next: Draft[], focus: number) => ((want.current = focus), setRows(next));
   const patch = (i: number, d: Partial<Draft>) => setRows(rows.map((x, j) => (j === i ? { ...x, ...d } : x)));
+  // Move focus to the line first: removing the focused swatch fires focusout, which would end the edit.
+  const choose = (i: number, color?: string) => (input(i)?.focus(), patch(i, { color }), setPicking(null));
 
   const onKey = (ev: KeyboardEvent, i: number) => {
     if (ev.isComposing) return; // Korean IME: Enter/Backspace while composing belong to the IME
@@ -287,22 +291,46 @@ function DayEditor(p: { day: string; tasks: Task[]; events: Event[]; at: number 
       {p.events.length > 0 && (
         <ul class="day-events">
           {p.events.map((e) => (
-            <li key={`${e.id}:${e.start}`}><Dot color={e.color} />{!e.allDay && <time>{timeLabel(e)}</time>}{e.title || tr.untitled}</li>
+            <li key={`${e.id}:${e.start}`}>
+              {/* Save the lines, close, then open the routine: two editors must not be open at once. */}
+              <button type="button" class="ev-open" onMouseDown={(x) => x.preventDefault()} onClick={() => (finish(false), p.onOpen(e))}>
+                <Dot color={e.color} />{!e.allDay && <time>{timeLabel(e)}</time>}{e.title || tr.untitled}
+              </button>
+            </li>
           ))}
         </ul>
       )}
       <ul class="lines editing" ref={box}
         onFocusOut={(ev) => !p.popover && !box.current?.contains(ev.relatedTarget as Node | null) && finish(false)}>
         {rows.map((r, i) => (
-          <li key={r.id} class={r.done ? "done" : undefined}>
-            <label class="hit">
-              <input type="checkbox" tabIndex={-1} checked={r.done} aria-label={tr.doneLabel(r.title || tr.blankLine)}
-                onChange={() => patch(i, { done: !r.done })} />
-            </label>
-            <input type="text" value={r.title} aria-label={tr.lineLabel(p.day, i + 1)}
-              onInput={(ev) => patch(i, { title: ev.currentTarget.value })}
-              onKeyDown={(ev) => onKey(ev, i)} onPaste={(ev) => onPaste(ev, i)} />
-          </li>
+          <Fragment key={r.id}>
+            <li class={r.done ? "done" : undefined}>
+              <label class="hit">
+                <input type="checkbox" tabIndex={-1} checked={r.done} aria-label={tr.doneLabel(r.title || tr.blankLine)}
+                  onChange={() => patch(i, { done: !r.done })} />
+              </label>
+              <button type="button" class="pick" tabIndex={-1} aria-label={tr.color} aria-expanded={picking === r.id}
+                onClick={() => setPicking(picking === r.id ? null : r.id)}>
+                <i class={r.color ? "dot" : "dot none"} style={r.color ? { background: r.color } : undefined} />
+              </button>
+              <input type="text" value={r.title} aria-label={tr.lineLabel(p.day, i + 1)}
+                onInput={(ev) => patch(i, { title: ev.currentTarget.value })}
+                onKeyDown={(ev) => onKey(ev, i)} onPaste={(ev) => onPaste(ev, i)} />
+            </li>
+            {picking === r.id && (
+              <li class="swatch-row">
+                <div class="swatches">
+                  <button type="button" class="swatch none" tabIndex={-1} aria-pressed={!r.color} aria-label={tr.noColor} title={tr.noColor}
+                    onClick={() => choose(i)} />
+                  {[...(r.color && !SWATCHES.includes(r.color) ? [r.color] : []), ...SWATCHES].map((c) => (
+                    <button key={c} type="button" class="swatch" tabIndex={-1} style={{ background: c }} aria-pressed={r.color === c}
+                      aria-label={tr.colorNames[SWATCHES.indexOf(c)] ?? c} title={tr.colorNames[SWATCHES.indexOf(c)] ?? c}
+                      onClick={() => choose(i, c)} />
+                  ))}
+                </div>
+              </li>
+            )}
+          </Fragment>
         ))}
       </ul>
     </>
