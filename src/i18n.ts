@@ -8,8 +8,9 @@ export interface RuleParts {
   freq: "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY";
   interval: number;
   days: number[]; // 0 = Sunday
+  nth: [number, number][]; // [ordinal, weekday]: [2, 1] = second Monday, [-1, 5] = last Friday
   months: number[];
-  monthDays: number[];
+  monthDays: number[]; // negative counts from the month end: -1 = last day
   count?: number;
   until?: string; // "YYYY-MM-DD"
   zone?: string; // set when the series runs on another zone than the PC's
@@ -28,6 +29,13 @@ const utc = (d: string) => new Date(`${d}T00:00:00Z`);
 
 const KO_DOW = ["일", "월", "화", "수", "목", "금", "토"];
 const koMd = (d: string) => `${n(d)[1]}월 ${n(d)[2]}일`;
+const KO_ORD = ["첫째", "둘째", "셋째", "넷째", "다섯째"];
+/** "1·15일", "말일", "끝에서 2번째 날". */
+const koMonthDays = (v: number[]) => {
+  const pos = v.filter((x) => x > 0);
+  return [pos.length ? `${pos.join("·")}일` : "", ...v.filter((x) => x < 0).map((x) => (x === -1 ? "말일" : `끝에서 ${-x}번째 날`))]
+    .filter(Boolean).join("·");
+};
 
 const ko = {
   dow: KO_DOW,
@@ -50,12 +58,13 @@ const ko = {
     const unit = { DAILY: "일", WEEKLY: "주", MONTHLY: "월", YEARLY: "년" }[r.freq];
     const head = r.interval > 1 ? `${r.interval}${r.freq === "MONTHLY" ? "개월" : unit}마다` : `매${unit}`;
     const days = r.days.map((i) => KO_DOW[i]).join("·");
-    const md = r.monthDays.join("·");
+    const md = koMonthDays(r.monthDays);
+    const nth = r.nth.map(([k, w]) => `${k > 0 ? KO_ORD[k - 1] : k === -1 ? "마지막" : `끝에서 ${KO_ORD[-k - 1]}`} ${KO_DOW[w]}요일`).join("·");
     const detail = {
       DAILY: days ? `${days}요일` : "",
       WEEKLY: `${days}요일`,
-      MONTHLY: `${md}일`,
-      YEARLY: `${r.months.join("·")}월 ${md}일`,
+      MONTHLY: [md, days && `${days}요일`, nth].filter(Boolean).join(" "),
+      YEARLY: `${r.months.join("·")}월 ${md}`,
     }[r.freq];
     const tail = r.count ? `, ${r.count}회` : r.until ? `, ${r.until}까지` : "";
     return `${head}${detail ? ` ${detail}` : ""}${tail}${r.zone ? ` (${r.zone} 기준)` : ""}`;
@@ -173,6 +182,13 @@ const EN_DOW = Array.from({ length: 7 }, (_, i) => en_({ weekday: "short" }).for
 const enMon = en_({ month: "short" });
 const enMd = (d: string) => `${enMon.format(utc(d))} ${n(d)[2]}`;
 const enList = (xs: (string | number)[]) => xs.join(", ");
+const EN_ORD = ["first", "second", "third", "fourth", "fifth"];
+/** "day 1, 15", "the last day", "day 2 from the end". */
+const enMonthDays = (v: number[]) => {
+  const pos = v.filter((x) => x > 0);
+  return enList([pos.length ? `day ${enList(pos)}` : "", ...v.filter((x) => x < 0).map((x) => (x === -1 ? "the last day" : `day ${-x} from the end`))]
+    .filter(Boolean));
+};
 
 const en: typeof ko = {
   dow: EN_DOW,
@@ -195,12 +211,13 @@ const en: typeof ko = {
     const unit = { DAILY: "day", WEEKLY: "week", MONTHLY: "month", YEARLY: "year" }[r.freq];
     const head = r.interval > 1 ? `Every ${r.interval} ${unit}s` : { DAILY: "Daily", WEEKLY: "Weekly", MONTHLY: "Monthly", YEARLY: "Yearly" }[r.freq];
     const days = enList(r.days.map((i) => EN_DOW[i]));
-    const md = enList(r.monthDays);
+    const nth = enList(r.nth.map(([k, w]) => `the ${k > 0 ? EN_ORD[k - 1] : k === -1 ? "last" : `${EN_ORD[-k - 1]}-to-last`} ${EN_DOW[w]}`));
+    const months = enList(r.months.map((m) => enMon.format(Date.UTC(2026, m - 1, 1))));
     const detail = {
       DAILY: days ? `on ${days}` : "",
       WEEKLY: `on ${days}`,
-      MONTHLY: `on day ${md}`,
-      YEARLY: `on ${enList(r.months.map((m) => enMon.format(Date.UTC(2026, m - 1, 1))))} ${md}`,
+      MONTHLY: `on ${enList([enMonthDays(r.monthDays), days, nth].filter(Boolean))}`,
+      YEARLY: r.monthDays.every((x) => x > 0) ? `on ${months} ${enList(r.monthDays)}` : `on ${enMonthDays(r.monthDays)} of ${months}`,
     }[r.freq];
     const tail = r.count ? `, ${r.count} times` : r.until ? `, until ${r.until}` : "";
     return `${head}${detail ? ` ${detail}` : ""}${tail}${r.zone ? ` (${r.zone} time)` : ""}`;

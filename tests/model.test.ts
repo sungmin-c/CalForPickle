@@ -102,7 +102,7 @@ describe("6. serialization", () => {
 
   it("holds the file on a rule the app cannot expand or a bad exdate", () => {
     const base = '"id":"e","start":"2026-11-02","end":"2026-11-03","updatedAt":"2026-11-15T10:00:00.000+09:00"';
-    expect(() => parseEvents(`[{${base},"recurrence":"FREQ=MONTHLY;BYDAY=2MO"}]`)).toThrow();
+    expect(() => parseEvents(`[{${base},"recurrence":"FREQ=YEARLY;BYDAY=4TH"}]`)).toThrow();
     expect(() => parseEvents(`[{${base},"recurrence":"FREQ=WEEKLY","exdates":["20261109"]}]`)).toThrow();
     expect(() => parseEvents(`[{${base},"recurrence":"FREQ=WEEKLY","exdates":"2026-11-09"}]`)).toThrow();
   });

@@ -65,7 +65,7 @@ describe("recurrence expansion", () => {
   });
 
   it("rejects what it cannot expand", () => {
-    for (const bad of ["", "BYDAY=MO", "FREQ=HOURLY", "FREQ=MONTHLY;BYDAY=2MO", "FREQ=WEEKLY;BYSETPOS=1", "FREQ=WEEKLY;COUNT=0", "FREQ=WEEKLY;UNTIL=2025"])
+    for (const bad of ["", "BYDAY=MO", "FREQ=HOURLY", "FREQ=WEEKLY;BYSETPOS=1", "FREQ=WEEKLY;COUNT=0", "FREQ=WEEKLY;UNTIL=2025"])
       expect(() => parseRule(bad), bad).toThrow();
     expect(parseRule("RRULE:FREQ=WEEKLY;BYDAY=MO,WE")).toMatchObject({ freq: "WEEKLY", byDay: [1, 3] });
   });
@@ -111,5 +111,99 @@ describe("routineList (hasEnded once per routine)", () => {
     const { routines, ended } = routineList(events, today);
     expect(routines.map((e) => e.id)).toEqual(["a", "b", "done"]);
     expect([...ended]).toEqual(["done"]);
+  });
+});
+
+// Session A (docs/ROUTINE_REPEAT_PLAN.md D1/D6): last day of month, Nth and last weekday.
+describe("month ends and Nth weekdays", () => {
+  const range = (e: ReturnType<typeof allDay>, from: string, to: string) => starts(expand([e], from, to));
+
+  it("BYMONTHDAY=-1 is the last day of every month, leap February included", () => {
+    expect(range(allDay("2026-01-31", "FREQ=MONTHLY;BYMONTHDAY=-1"), "2026-01-01", "2026-05-01"))
+      .toEqual(["2026-01-31", "2026-02-28", "2026-03-31", "2026-04-30"]);
+    expect(range(allDay("2026-01-31", "FREQ=MONTHLY;BYMONTHDAY=-1"), "2028-02-01", "2028-03-01")).toEqual(["2028-02-29"]);
+    expect(range(allDay("2026-01-30", "FREQ=MONTHLY;BYMONTHDAY=-2"), "2026-02-01", "2026-04-01")).toEqual(["2026-02-27", "2026-03-30"]);
+  });
+
+  it("BYDAY=2MO is the second Monday, not the start's day of month (RFC default)", () => {
+    expect(range(allDay("2026-01-12", "FREQ=MONTHLY;BYDAY=2MO"), "2026-01-01", "2026-04-01"))
+      .toEqual(["2026-01-12", "2026-02-09", "2026-03-09"]);
+    expect(range(allDay("2026-01-12", "FREQ=MONTHLY;BYDAY=+2MO"), "2026-02-01", "2026-03-01")).toEqual(["2026-02-09"]);
+  });
+
+  it("BYDAY=-1FR is the last Friday; 5MO skips months without a fifth Monday", () => {
+    expect(range(allDay("2026-01-30", "FREQ=MONTHLY;BYDAY=-1FR"), "2026-01-01", "2026-05-01"))
+      .toEqual(["2026-01-30", "2026-02-27", "2026-03-27", "2026-04-24"]);
+    expect(range(allDay("2026-03-30", "FREQ=MONTHLY;BYDAY=5MO"), "2026-03-01", "2026-09-01"))
+      .toEqual(["2026-03-30", "2026-06-29", "2026-08-31"]);
+  });
+
+  it("a start that misses the rule: first occurrence is the next match", () => {
+    expect(range(allDay("2026-01-01", "FREQ=MONTHLY;BYDAY=2MO"), "2026-01-01", "2026-02-01")).toEqual(["2026-01-12"]);
+  });
+
+  it("plain BYDAY in MONTHLY is every such weekday; with BYMONTHDAY both must hold", () => {
+    expect(range(allDay("2026-02-02", "FREQ=MONTHLY;BYDAY=MO"), "2026-02-01", "2026-03-01"))
+      .toEqual(["2026-02-02", "2026-02-09", "2026-02-16", "2026-02-23"]);
+    expect(range(allDay("2026-02-13", "FREQ=MONTHLY;BYDAY=FR;BYMONTHDAY=13"), "2026-01-01", "2027-01-01"))
+      .toEqual(["2026-02-13", "2026-03-13", "2026-11-13"]);
+  });
+
+  it("YEARLY last day of February", () => {
+    expect(range(allDay("2026-02-28", "FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-1"), "2026-01-01", "2029-01-01"))
+      .toEqual(["2026-02-28", "2027-02-28", "2028-02-29"]);
+  });
+
+  it("INTERVAL with COUNT and UNTIL; exdates still count toward COUNT", () => {
+    expect(range(allDay("2026-01-12", "FREQ=MONTHLY;INTERVAL=2;BYDAY=2MO;COUNT=3"), "2026-01-01", "2027-01-01"))
+      .toEqual(["2026-01-12", "2026-03-09", "2026-05-11"]);
+    expect(range(allDay("2026-01-31", "FREQ=MONTHLY;BYMONTHDAY=-1;UNTIL=20260430"), "2026-01-01", "2027-01-01"))
+      .toEqual(["2026-01-31", "2026-02-28", "2026-03-31", "2026-04-30"]);
+    expect(range(allDay("2026-01-31", "FREQ=MONTHLY;BYMONTHDAY=-1;COUNT=3", ["2026-02-28"]), "2026-01-01", "2027-01-01"))
+      .toEqual(["2026-01-31", "2026-03-31"]);
+  });
+
+  it("timed series on another zone matches its own dates (New York last Friday 23:00)", () => {
+    const e = ev({
+      id: "ny",
+      start: "2026-01-30T23:00:00-05:00",
+      end: "2026-01-30T23:30:00-05:00",
+      tz: "America/New_York",
+      recurrence: "FREQ=MONTHLY;BYDAY=-1FR",
+    });
+    expect(starts(expand([e], "2026-02-01", "2026-04-01"))).toEqual(["2026-02-27T23:00:00-05:00", "2026-03-27T23:00:00-04:00"]);
+  });
+
+  it("parses ordinals and negative days; rejects what RFC or this app does not allow", () => {
+    expect(parseRule("FREQ=MONTHLY;BYDAY=2MO,-1FR,SU;BYMONTHDAY=-1,15")).toMatchObject({
+      byDay: [0],
+      byNth: [[2, 1], [-1, 5]],
+      byMonthDay: [-1, 15],
+    });
+    for (const bad of [
+      "FREQ=MONTHLY;BYDAY=0MO",
+      "FREQ=MONTHLY;BYDAY=6MO",
+      "FREQ=MONTHLY;BYDAY=-6MO",
+      "FREQ=MONTHLY;BYDAY=2XX",
+      "FREQ=MONTHLY;BYMONTHDAY=0",
+      "FREQ=MONTHLY;BYMONTHDAY=-32",
+      "FREQ=WEEKLY;BYDAY=2MO",
+      "FREQ=DAILY;BYDAY=-1FR",
+      "FREQ=YEARLY;BYDAY=4TH",
+      "FREQ=MONTHLY;BYDAY=2MO;COUNT=3;UNTIL=20261231",
+    ])
+      expect(() => parseRule(bad), bad).toThrow();
+  });
+
+  it("describes them in Korean", () => {
+    expect(describeRule("FREQ=MONTHLY;BYMONTHDAY=-1", "2026-01-31")).toBe("매월 말일");
+    expect(describeRule("FREQ=MONTHLY;BYMONTHDAY=-2", "2026-01-30")).toBe("매월 끝에서 2번째 날");
+    expect(describeRule("FREQ=MONTHLY;BYDAY=2MO", "2026-01-12")).toBe("매월 둘째 월요일");
+    expect(describeRule("FREQ=MONTHLY;BYDAY=-1FR", "2026-01-30")).toBe("매월 마지막 금요일");
+    expect(describeRule("FREQ=MONTHLY;BYDAY=-2FR", "2026-01-23")).toBe("매월 끝에서 둘째 금요일");
+    expect(describeRule("FREQ=MONTHLY;INTERVAL=2;BYDAY=2MO;COUNT=3", "2026-01-12")).toBe("2개월마다 둘째 월요일, 3회");
+    expect(describeRule("FREQ=MONTHLY;BYDAY=MO", "2026-02-02")).toBe("매월 월요일");
+    expect(describeRule("FREQ=MONTHLY;BYDAY=FR;BYMONTHDAY=13", "2026-02-13")).toBe("매월 13일 금요일");
+    expect(describeRule("FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-1", "2026-02-28")).toBe("매년 2월 말일");
   });
 });

@@ -40,5 +40,12 @@ describe("English formats", () => {
     expect(describeRule("FREQ=YEARLY;UNTIL=20301231", "2026-01-12")).toBe("Yearly on Jan 12, until 2030-12-31");
     expect(describeRule("FREQ=MONTHLY;BYMONTHDAY=1,15", "2026-01-01")).toBe("Monthly on day 1, 15");
     expect(describeRule("FREQ=DAILY", "2026-01-01")).toBe("Daily");
+    expect(describeRule("FREQ=MONTHLY;BYMONTHDAY=-1", "2026-01-31")).toBe("Monthly on the last day");
+    expect(describeRule("FREQ=MONTHLY;BYMONTHDAY=-2", "2026-01-30")).toBe("Monthly on day 2 from the end");
+    expect(describeRule("FREQ=MONTHLY;BYDAY=2MO", "2026-01-12")).toBe("Monthly on the second Mon");
+    expect(describeRule("FREQ=MONTHLY;BYDAY=-1FR", "2026-01-30")).toBe("Monthly on the last Fri");
+    expect(describeRule("FREQ=MONTHLY;BYDAY=-2FR", "2026-01-23")).toBe("Monthly on the second-to-last Fri");
+    expect(describeRule("FREQ=MONTHLY;BYDAY=FR;BYMONTHDAY=13", "2026-02-13")).toBe("Monthly on day 13, Fri");
+    expect(describeRule("FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-1", "2026-02-28")).toBe("Yearly on the last day of Feb");
   });
 });

@@ -9,8 +9,9 @@ export interface Rule {
   freq: Freq;
   interval: number;
   byDay?: number[]; // 0 = Sunday
+  byNth?: [number, number][]; // [ordinal ±1..5, weekday] from "2MO" / "-1FR"; MONTHLY only
   byMonth?: number[];
-  byMonthDay?: number[];
+  byMonthDay?: number[]; // negative counts from the month end: -1 = last day
   count?: number;
   until?: number; // last allowed start instant (inclusive)
 }
@@ -19,7 +20,7 @@ const DAYS = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
 const ALLOWED: Record<Freq, string[]> = {
   DAILY: ["BYDAY", "BYMONTH", "BYMONTHDAY"],
   WEEKLY: ["BYDAY", "BYMONTH"],
-  MONTHLY: ["BYMONTH", "BYMONTHDAY"],
+  MONTHLY: ["BYDAY", "BYMONTH", "BYMONTHDAY"],
   YEARLY: ["BYMONTH", "BYMONTHDAY"],
 };
 const COMMON = ["FREQ", "INTERVAL", "COUNT", "UNTIL"];
@@ -30,6 +31,7 @@ const addDays = (d: string, n: number) => new Date(utc(d) + n * DAY_MS).toISOStr
 const daysBetween = (a: string, b: string) => Math.round((utc(b) - utc(a)) / DAY_MS);
 const weekday = (d: string) => new Date(utc(d)).getUTCDay();
 const ymd = (d: string) => d.split("-").map(Number) as [number, number, number];
+const monthLen = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate();
 
 function nums(v: string, min: number, max: number): number[] {
   return v.split(",").map((x) => {
@@ -66,24 +68,30 @@ export function parseRule(text: string, zone = "+09:00"): Rule {
   if (parts.has("COUNT") && parts.has("UNTIL")) throw new Error("COUNT with UNTIL");
   const r: Rule = { freq, interval: parts.has("INTERVAL") ? nums(parts.get("INTERVAL")!, 1, 999)[0] : 1 };
   if (parts.has("BYDAY"))
-    r.byDay = parts.get("BYDAY")!.split(",").map((d) => {
-      const i = DAYS.indexOf(d);
-      if (i < 0) throw new Error(`BYDAY "${d}"`);
-      return i;
-    });
+    for (const d of parts.get("BYDAY")!.split(",")) {
+      const m = /^([+-]?[1-5])?([A-Z]{2})$/.exec(d);
+      const i = m ? DAYS.indexOf(m[2]) : -1;
+      if (i < 0 || (m![1] && freq !== "MONTHLY")) throw new Error(`BYDAY "${d}"`);
+      if (m![1]) (r.byNth ??= []).push([Number(m![1]), i]);
+      else (r.byDay ??= []).push(i);
+    }
   if (parts.has("BYMONTH")) r.byMonth = nums(parts.get("BYMONTH")!, 1, 12);
-  if (parts.has("BYMONTHDAY")) r.byMonthDay = nums(parts.get("BYMONTHDAY")!, 1, 31);
+  if (parts.has("BYMONTHDAY")) {
+    r.byMonthDay = nums(parts.get("BYMONTHDAY")!, -31, 31);
+    if (r.byMonthDay.includes(0)) throw new Error("BYMONTHDAY 0");
+  }
   if (parts.has("COUNT")) r.count = nums(parts.get("COUNT")!, 1, 100_000)[0];
   if (parts.has("UNTIL")) r.until = untilOf(parts.get("UNTIL")!, zone);
   return r;
 }
 
-/** Missing BY* parts default to the series start, as RFC 5545 does. */
+/** Missing BY* parts default to the series start, as RFC 5545 does (a MONTHLY BYDAY replaces the day-of-month default). */
 function matcher(r: Rule, start: string): (d: string) => boolean {
   const [sy, sm, sd] = ymd(start);
+  const anyDay = r.byDay || r.byNth;
   const byDay = r.byDay ?? (r.freq === "WEEKLY" ? [weekday(start)] : undefined);
   const byMonth = r.byMonth ?? (r.freq === "YEARLY" ? [sm] : undefined);
-  const byMonthDay = r.byMonthDay ?? (r.freq === "MONTHLY" || r.freq === "YEARLY" ? [sd] : undefined);
+  const byMonthDay = r.byMonthDay ?? ((r.freq === "MONTHLY" && !anyDay) || r.freq === "YEARLY" ? [sd] : undefined);
   const weekStart = addDays(start, -((weekday(start) + 6) % 7)); // WKST=MO
   return (d) => {
     const [y, m, day] = ymd(d);
@@ -93,8 +101,12 @@ function matcher(r: Rule, start: string): (d: string) => boolean {
       MONTHLY: (y - sy) * 12 + (m - sm),
       YEARLY: y - sy,
     }[r.freq];
-    return period % r.interval === 0 && (!byDay || byDay.includes(weekday(d))) &&
-      (!byMonth || byMonth.includes(m)) && (!byMonthDay || byMonthDay.includes(day));
+    const len = monthLen(y, m);
+    const wd = weekday(d);
+    const dayOk = (!byDay && !r.byNth) || !!byDay?.includes(wd) ||
+      !!r.byNth?.some(([n, w]) => w === wd && (n > 0 ? Math.ceil(day / 7) === n : Math.ceil((len - day + 1) / 7) === -n));
+    return period % r.interval === 0 && dayOk && (!byMonth || byMonth.includes(m)) &&
+      (!byMonthDay || byMonthDay.some((v) => v === day || v === day - len - 1));
   };
 }
 
@@ -176,8 +188,9 @@ export function describeRule(text: string, start: string, tz?: string): string {
     freq: r.freq,
     interval: r.interval,
     days: r.byDay ?? (r.freq === "WEEKLY" ? [weekday(first)] : []),
+    nth: r.byNth ?? [],
     months: r.byMonth ?? [m],
-    monthDays: r.byMonthDay ?? [d],
+    monthDays: r.byMonthDay ?? (r.freq === "MONTHLY" && (r.byDay || r.byNth) ? [] : [d]),
     count: r.count,
     until: r.until === undefined ? undefined : dateIn(r.until, zone),
     zone: other ? tz ?? `UTC${zone === "Z" ? "" : zone}` : undefined,
