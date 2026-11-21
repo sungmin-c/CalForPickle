@@ -1,12 +1,14 @@
+import { emitTo, listen } from "@tauri-apps/api/event";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { Event, Task } from "../model";
 import { holidayName, usHolidayName } from "../holidays";
 import { lang, tr, type Title } from "../i18n";
 import { expand } from "../recur";
 import { addDays, addMonths, byTime, monthDays, onDay, timeLabel, weekDays } from "./dates";
-import { commitDay, dayList, fitRows, type Draft } from "./dayList";
+import { clampLines, commitDay, dayList, fitRows, reflow, type Draft } from "./dayList";
 import { Modal } from "./Dialogs";
 import { Dot } from "./icons";
+import { memoBox } from "./memoBox";
 
 export type View = "month" | "week";
 /** Header title in parts; `short` is the narrow-header form ("11.15 – 21", English also "Nov 2026"). */
@@ -31,6 +33,8 @@ export function Calendar(p: {
   onEditing: (on: boolean) => void;
   /** Edit a day in a popover over its cell instead of a dialog. */
   popover: boolean;
+  /** Pinned under the icons: the memo is its own window above them (editor.rs, Editor.tsx) instead of part of this page. */
+  editorWin: boolean;
 }) {
   const days = p.view === "month" ? monthDays(p.sel) : weekDays(p.sel);
   const month = p.sel.slice(0, 7);
@@ -51,16 +55,48 @@ export function Calendar(p: {
   // A greyed day of another month can be edited, but must not switch the month, so it is not selected.
   const pick = (d: string) => p.view === "month" && d.slice(0, 7) !== month || p.onSelect(d);
 
+  // Memo window: this page hands the day over and takes the lines back when the window ends the edit.
+  const latest = useRef(p);
+  latest.current = p;
+  useEffect(() => {
+    if (!p.editorWin || !editing) return;
+    const i = days.indexOf(editing.day);
+    const cell = grid.current?.querySelector<HTMLElement>(`[data-day="${editing.day}"]`)?.closest(".cell");
+    if (i < 0 || !cell) return;
+    const rows = days.length / 7;
+    const box = memoBox(cell.getBoundingClientRect(), { col: i % 7, south: rows > 2 && i >= days.length - 14, last: i >= days.length - 7, week: p.view === "week", vh: innerHeight });
+    const events = shownEvents.filter((e) => onDay(e, editing.day)).sort(byTime);
+    void emitTo("editor", "editor-open", { day: editing.day, at: editing.at, tasks: dayList(p.tasks, editing.day), events, box, lang });
+  }, [editing, p.editorWin]);
+  useEffect(() => {
+    if (!p.editorWin) return;
+    const subs = [
+      listen<{ day: string; drafts: Draft[]; refocus: boolean }>("editor-done", ({ payload: { day, drafts, refocus } }) => {
+        setEditing(null);
+        const changed = commitDay(day, dayList(latest.current.tasks, day), drafts);
+        if (changed.length) latest.current.onSaveTasks(changed);
+        if (refocus) setTimeout(() => document.querySelector<HTMLElement>(`[data-day="${day}"]`)?.focus());
+      }),
+      listen<Event>("editor-open-event", ({ payload }) => latest.current.onOpen(payload)),
+    ];
+    return () => subs.forEach((s) => void s.then((off) => off()));
+  }, [p.editorWin]);
+
   // Rows shown per cell. null = render every row, measure them in the layout effect, then cut (before paint).
   const grid = useRef<HTMLDivElement>(null);
-  const [fit, setFit] = useState<Record<string, number> | null>(null);
+  // n: rows shown; lines: a first row taller than the whole cell is cut to this many lines.
+  const [fit, setFit] = useState<{ n: Record<string, number>; lines: Record<string, number> } | null>(null);
   useLayoutEffect(() => setFit(null), [p.events, p.tasks, p.view, days[0]]);
   useLayoutEffect(() => {
     if (fit) return;
-    const next: Record<string, number> = {};
+    const next = { n: {} as Record<string, number>, lines: {} as Record<string, number> };
     grid.current?.querySelectorAll<HTMLElement>(".items").forEach((ul) => {
       const top = ul.getBoundingClientRect().top;
-      next[ul.dataset.items!] = fitRows([...ul.children].map((li) => li.getBoundingClientRect().bottom - top), ul.clientHeight);
+      const bottoms = [...ul.children].map((li) => li.getBoundingClientRect().bottom - top);
+      const n = (next.n[ul.dataset.items!] = fitRows(bottoms, ul.clientHeight));
+      const first = ul.querySelector<HTMLElement>(".line span");
+      if (n === 1 && bottoms[0] > ul.clientHeight + 1 && first && ul.firstElementChild?.classList.contains("line"))
+        next.lines[ul.dataset.items!] = clampLines(ul.clientHeight, parseFloat(getComputedStyle(first).lineHeight) || 18, bottoms.length > 1 ? 24 : 0);
     });
     setFit(next);
   });
@@ -120,7 +156,7 @@ export function Calendar(p: {
           // The popover grows away from the calendar's edges: right columns open leftward, bottom rows open upward.
           const rows = days.length / 7;
           const cls = ["cell", active && "sel", d === p.today && "today", holiday && "hol", p.view === "month" && d.slice(0, 7) !== month && "out",
-            edit && p.popover && "pop", i % 7 === 0 && "c0", i % 7 >= 5 && "east", i % 7 === 6 && "c6", rows > 2 && i >= days.length - 14 && "south",
+            edit && p.popover && !p.editorWin && "pop", i % 7 === 0 && "c0", i % 7 >= 5 && "east", i % 7 === 6 && "c6", rows > 2 && i >= days.length - 14 && "south",
             i >= days.length - 7 && "last"];
           const chip = (e: Event, t: number) => (
             <li key={`${e.id}:${e.start}`}>
@@ -135,7 +171,8 @@ export function Calendar(p: {
           const open = () => (pick(d), setEditing({ day: d, at: "end" }));
           // Events, then tasks (open before done): what doesn't fit is cut from the end, so done tasks go first.
           const items = [...list.map((e) => chip(e, tab)), ...lines.map((t, i) => (
-            <li key={`t:${t.id}`} data-i={i} class={t.status === "done" ? "line done" : "line"}>
+            <li key={`t:${t.id}`} data-i={i} class={t.status === "done" ? "line done" : "line"}
+              style={!list.length && i === 0 && fit?.lines[d] ? { "--lines": fit.lines[d] } : undefined}>
               {/* Handlers on the label: a click on its padding must not reach the cell's double-click either. */}
               <label class="hit" onClick={(x) => x.stopPropagation()} onDblClick={(x) => x.stopPropagation()}>
                 <input type="checkbox" tabIndex={tab} checked={t.status === "done"} aria-label={tr.doneLabel(t.title)}
@@ -145,14 +182,14 @@ export function Calendar(p: {
               <span>{t.title}</span>
             </li>
           ))];
-          const n = fit?.[d] ?? items.length;
+          const n = fit?.n[d] ?? items.length;
           const label = tr.dayLabel(d, d === p.today, holiday, list.length, lines.length);
           return (
             // Single click does nothing; double click opens the memo. Enter on the day button is the keyboard equivalent.
             <div key={d} class={cls.filter(Boolean).join(" ")}
               // Popover: clicks in the memo must not pull focus out of the lines (that would end the edit).
               // A checkbox click must not take the caret from the text line either.
-              onMouseDown={(x) => edit && p.popover && !(x.target as HTMLElement).closest("input[type=text]") && x.preventDefault()}
+              onMouseDown={(x) => edit && p.popover && !(x.target as HTMLElement).closest("textarea") && x.preventDefault()}
               onDblClick={(x) => {
                 if (edit) return;
                 pick(d);
@@ -177,7 +214,7 @@ export function Calendar(p: {
                   </li>
                 )}
               </ul>
-              {edit && (
+              {edit && !p.editorWin && (
                 // Dialog (or popover): it can sit above the desktop icons; leaving it (Esc, Tab, a click outside) saves like leaving the lines did.
                 <DayEditor key={d} day={d} tasks={lines} at={edit.at} events={list} popover={p.popover} onOpen={p.onOpen}
                   onDone={(drafts, refocusDay) => {
@@ -197,14 +234,24 @@ export function Calendar(p: {
 }
 
 /** One input per line, bound to the task id, so an edit never has to guess which task a line was. Ends on Esc, Tab or focus leaving the lines. */
-function DayEditor(p: { day: string; tasks: Task[]; events: Event[]; at: number | "end"; popover: boolean; onOpen: (e: Event) => void; onDone: (d: Draft[], refocusDay: boolean) => void }) {
+export function DayEditor(p: {
+  day: string; tasks: Task[]; events: Event[]; at: number | "end"; popover: boolean; onOpen: (e: Event) => void; onDone: (d: Draft[], refocusDay: boolean) => void;
+  /** In its own window (Editor.tsx): there is no "outside" to press, the edit ends when the window loses focus. onSize reports the memo's height. */
+  windowed?: boolean; onSize?: (cssHeight: number) => void;
+}) {
   const blank = (): Draft => ({ id: crypto.randomUUID(), title: "", done: false });
   const [rows, setRows] = useState<Draft[]>(() => {
     const r = p.tasks.map((t) => ({ id: t.id, title: t.title, done: t.status === "done" }));
     return p.at === "end" || !r.length ? [...r, blank()] : r;
   });
-  const box = useRef<HTMLUListElement>(null);
-  const want = useRef<number | null>(p.at === "end" ? rows.length - 1 : Math.min(p.at, rows.length - 1));
+  const box = useRef<HTMLDivElement>(null);
+  const area = useRef<HTMLTextAreaElement>(null);
+  // Where the caret starts: the end of the clicked line ("end": the new blank line at the bottom).
+  const want = useRef<number | null>(null);
+  want.current ??= (() => {
+    const i = p.at === "end" ? rows.length - 1 : Math.min(p.at, rows.length - 1);
+    return rows.slice(0, i + 1).reduce((n, r) => n + r.title.length, 0) + i;
+  })();
   const closed = useRef(false); // Esc refocuses the day button, which fires focusout: end the edit once
   const latest = useRef(rows);
   latest.current = rows;
@@ -214,72 +261,45 @@ function DayEditor(p: { day: string; tasks: Task[]; events: Event[]; at: number 
   // explorer on every click inside it (desktop.rs hands it back on release), and that blur used to close the popover.
   useEffect(() => {
     if (!p.popover) return;
+    if (p.windowed) {
+      const lost = () => finish(false);
+      addEventListener("blur", lost);
+      return () => removeEventListener("blur", lost);
+    }
     const out = (ev: MouseEvent) => memo.current && !memo.current.contains(ev.target as Node) && finish(false);
     document.addEventListener("mousedown", out, true);
     return () => document.removeEventListener("mousedown", out, true);
   }); // every render: finish must see the current tasks
 
-  const input = (i: number) => box.current?.querySelectorAll<HTMLInputElement>("input[type=text]")[i];
   const place = () => {
     if (want.current === null) return;
-    const el = input(want.current);
+    const at = want.current;
     want.current = null;
-    el?.focus();
-    el?.setSelectionRange(el.value.length, el.value.length);
+    area.current?.focus();
+    area.current?.setSelectionRange(at, at);
   };
-  // New lines take focus before paint, or fast typing lands in the old line. The dialog opens in Modal's effect, so the
-  // first focus waits for that (focus() on a closed dialog is ignored).
+  // The dialog opens in Modal's effect, so the first focus waits for that (focus() on a closed dialog is ignored).
   useLayoutEffect(() => {
     const dlg = box.current?.closest("dialog");
     if (!dlg || dlg.open) place();
-  }, [rows]);
+  }, []);
   useEffect(place, []);
+  useLayoutEffect(() => {
+    if (memo.current) p.onSize?.(memo.current.offsetHeight);
+  }, [rows]);
 
   const finish = (refocusDay: boolean) => {
     if (closed.current) return;
     closed.current = true;
     p.onDone(latest.current, refocusDay);
   };
-  const put = (next: Draft[], focus: number) => ((want.current = focus), setRows(next));
-  const patch = (i: number, d: Partial<Draft>) => setRows(rows.map((x, j) => (j === i ? { ...x, ...d } : x)));
 
-  const onKey = (ev: KeyboardEvent, i: number) => {
-    if (ev.isComposing) return; // Korean IME: Enter/Backspace while composing belong to the IME
-    const el = ev.currentTarget as HTMLInputElement;
-    if (ev.key === "Enter") {
-      ev.preventDefault();
-      put([...rows.slice(0, i + 1), blank(), ...rows.slice(i + 1)], i + 1);
-    } else if (ev.key === "Backspace" && el.value === "" && rows.length > 1) {
-      ev.preventDefault();
-      // Move focus first: removing the focused input fires focusout, which would end the edit.
-      input(i > 0 ? i - 1 : 1)?.focus();
-      put(rows.filter((_, j) => j !== i), Math.max(i - 1, 0));
-    } else if (ev.key === "ArrowUp" && i > 0) {
-      ev.preventDefault();
-      input(i - 1)?.focus();
-    } else if (ev.key === "ArrowDown" && i < rows.length - 1) {
-      ev.preventDefault();
-      input(i + 1)?.focus();
-    } else if (ev.key === "Escape" || ev.key === "Tab") {
+  const onKey = (ev: KeyboardEvent) => {
+    if (ev.isComposing) return; // Korean IME: its keys belong to the IME
+    if (ev.key === "Escape" || ev.key === "Tab") {
       ev.preventDefault();
       finish(true);
     }
-  };
-
-  // A pasted multi-line list becomes one row per line.
-  const onPaste = (ev: ClipboardEvent, i: number) => {
-    const text = ev.clipboardData?.getData("text") ?? "";
-    if (!/[\r\n]/.test(text)) return;
-    ev.preventDefault();
-    const el = ev.currentTarget as HTMLInputElement;
-    const parts = text.split(/\r\n|\n|\r/);
-    const head = el.value.slice(0, el.selectionStart ?? el.value.length);
-    const tail = el.value.slice(el.selectionEnd ?? el.value.length);
-    const added = parts.map((t, j) => ({
-      ...(j === 0 ? rows[i] : blank()),
-      title: (j === 0 ? head : "") + t + (j === parts.length - 1 ? tail : ""),
-    }));
-    put([...rows.slice(0, i), ...added, ...rows.slice(i + 1)], i + parts.length - 1);
   };
 
   const body = (
@@ -296,20 +316,30 @@ function DayEditor(p: { day: string; tasks: Task[]; events: Event[]; at: number 
           ))}
         </ul>
       )}
-      <ul class="lines editing" ref={box}
+      {/* All lines are one text, so a drag, copy or delete runs across lines. The invisible list under the text has one item per
+          task: it sets the height (it wraps like the text) and carries each line's checkbox. */}
+      <div class="lines editing" ref={box}
         onFocusOut={(ev) => !p.popover && !box.current?.contains(ev.relatedTarget as Node | null) && finish(false)}>
-        {rows.map((r, i) => (
-          <li key={r.id} class={r.done ? "done" : undefined}>
-            <label class="hit">
-              <input type="checkbox" tabIndex={-1} checked={r.done} aria-label={tr.doneLabel(r.title || tr.blankLine)}
-                onChange={() => patch(i, { done: !r.done })} />
-            </label>
-            <input type="text" value={r.title} aria-label={tr.lineLabel(p.day, i + 1)}
-              onInput={(ev) => patch(i, { title: ev.currentTarget.value })}
-              onKeyDown={(ev) => onKey(ev, i)} onPaste={(ev) => onPaste(ev, i)} />
-          </li>
-        ))}
-      </ul>
+        <div class="stack">
+          <ul class="mirror">
+            {rows.map((r, i) => (
+              <li key={r.id} class="txt">
+                <label class="hit">
+                  <input type="checkbox" tabIndex={-1} checked={r.done} aria-label={tr.doneLabel(r.title || tr.blankLine)}
+                    onChange={() => setRows(rows.map((x, j) => (j === i ? { ...x, done: !x.done } : x)))} />
+                </label>
+                {r.title}
+              </li>
+            ))}
+          </ul>
+          <textarea ref={area} class="txt" rows={1} value={rows.map((r) => r.title).join("\n")} aria-label={tr.dayHeading(p.day)}
+            onInput={(ev) => {
+              const lines = ev.currentTarget.value.split("\n");
+              setRows((r) => reflow(r, lines, blank));
+            }}
+            onKeyDown={onKey} />
+        </div>
+      </div>
     </>
   );
   return p.popover ? (

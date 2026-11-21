@@ -25,6 +25,22 @@
         "shadow": false,
         "maximizable": false,
         "skipTaskbar": true
+      },
+      {
+        "label": "editor",
+        "title": "CalForPickle memo",
+        "url": "index.html?editor",
+        "width": 240,
+        "height": 120,
+        "visible": false,
+        "focus": false,
+        "transparent": true,
+        "decorations": false,
+        "shadow": false,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "skipTaskbar": true
       }
     ],
     "security": {

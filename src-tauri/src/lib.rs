@@ -1,4 +1,5 @@
 mod desktop;
+mod editor;
 mod files;
 mod github;
 mod secret;
@@ -89,6 +90,9 @@ pub fn run() {
             set_tray_labels,
             desktop::desktop_pin,
             desktop::desktop_raise,
+            editor::editor_show,
+            editor::editor_fit,
+            editor::editor_hide,
             secret::secret_set,
             secret::secret_exists,
             secret::secret_delete,

@@ -176,6 +176,12 @@ fn set_parent(h: H, p: H) {
     }
 }
 
+/// Screen position of the pinned window's top-left corner, None unless pinned.
+pub fn pinned_origin() -> Option<(i32, i32)> {
+    let s = ST.lock().unwrap();
+    s.pinned.then_some((s.rect.l, s.rect.t))
+}
+
 /// The mouse hook exists only while pinned: every click on the whole system passes through it, and Windows drops it
 /// without a word if the main thread stalls past LowLevelHooksTimeout. Unpinning and pinning again brings it back.
 fn set_hook(hook: &mut H, on: bool, install: impl FnOnce() -> H, remove: impl FnOnce(H)) -> Result<(), String> {

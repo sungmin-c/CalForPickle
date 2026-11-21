@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emitTo, listen } from "@tauri-apps/api/event";
 import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
 import { availableMonitors, getCurrentWindow } from "@tauri-apps/api/window";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
@@ -99,6 +99,13 @@ export function App() {
   // Under the icons the page gets no mouse moves and an icon can cover a dialog: while one is open, sit above them (desktop.rs).
   const editing = !!(editEvent || editTask || showSettings || cellEdit);
   useEffect(() => void invoke("desktop_raise", { on: editing }).catch(() => {}), [editing, settings.alwaysBottom]);
+  // The memo window (Editor.tsx) announces itself once its page is up; until then the memo stays in this page.
+  const [editorReady, setEditorReady] = useState(false);
+  useEffect(() => {
+    const on = listen("editor-ready", () => setEditorReady(true));
+    void on.then(() => emitTo("editor", "editor-ping").catch(() => {}));
+    return () => void on.then((off) => off());
+  }, []);
   const [syncing, setSyncing] = useState(false);
   const [fatal, setFatal] = useState("");
 
@@ -342,6 +349,7 @@ export function App() {
       <main class={settings.memoOpen ? "body" : "body no-memo"} inert={!pinned}>
         <Calendar view={view} sel={sel} today={now} events={visibleEvents} tasks={sync.tasks()}
           onSelect={setSel} onEditing={setCellEdit} popover={!!settings.cellPopover}
+          editorWin={editorReady && !!settings.alwaysBottom && !!settings.cellPopover}
           onSaveTasks={(ts) => void Promise.all(ts.map((t) => sync.saveTask(t))).then(bump)}
           // An occurrence is a copy with shifted dates: edit the stored series, remember which day was clicked.
           onOpen={(e) => setEditEvent({ event: sync.events().find((x) => x.id === e.id) ?? e, isNew: false, day: e.start.slice(0, 10) })} />

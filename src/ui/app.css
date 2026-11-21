@@ -183,33 +183,35 @@ label.check { display: flex; align-items: center; gap: 8px; min-height: 24px; cu
   align-content: start; /* .cell ul is a grid; without this, spare height spreads the rows apart */
   grid-auto-rows: max-content; /* li has overflow: hidden, so auto rows would shrink to 0 when the list is full */
 }
-.line { display: flex; align-items: center; min-height: 20px; } /* flex: an inline checkbox would stretch the line box */
-.line span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.month .line span { white-space: nowrap; }
+.line { display: flex; align-items: flex-start; min-height: 20px; } /* flex: an inline checkbox would stretch the line box */
+.line span { min-width: 0; padding-block: 1px; overflow-wrap: anywhere; } /* a long task wraps; what doesn't fit the cell goes to "+N" (fitRows) */
+.line[style*="--lines"] span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--lines); overflow: hidden; } /* a task taller than its cell ends in "…" instead of being cut mid-line */
+.line .hit { display: flex; align-items: center; height: 20px; } /* checkbox and dot stay beside the first line of a wrapped task */
+.line .dot { margin-top: 6px; }
 .lines { margin: 0; padding: 0; font-size: 12px; } /* the memo's editable lines */
 .lines li > * { vertical-align: middle; }
 .line input[type="checkbox"] { flex: none; }
 .line .hit, .lines .hit { margin-right: -5px; padding-left: 2px; } /* 2 + 13 + 4 as before: the label's extra width sits over the dot */
 .line input[type="checkbox"], .lines input[type="checkbox"] { width: 13px; height: 13px; }
-.line.done span, .lines li.done input[type="text"] { color: var(--muted); text-decoration: line-through; }
-.lines.editing li { white-space: nowrap; }
-.lines input[type="text"] {
-  width: calc(100% - 19px); min-height: 0; padding: 0 2px; border: 0; border-radius: 2px; background: var(--bg); font-size: 12px;
-}
-.lines input:focus-visible { outline-offset: -2px; } /* the scrolling list would clip an outside ring */
+.line.done span { color: var(--muted); text-decoration: line-through; }
+/* The memo's lines are one textarea over an invisible list of the same text (.mirror): the list gives the height and holds each
+   line's checkbox. Same box, font and wrapping for both, or the checkboxes drift off their lines. No focus ring: the caret shows where you are. */
+.lines .stack { position: relative; }
+.lines .txt { margin: 0; padding: 0 2px 0 22px; border: 0; min-height: 1.5em; white-space: pre-wrap; overflow-wrap: anywhere; word-break: keep-all; }
+.lines .mirror { display: block; margin: 0; padding: 0; visibility: hidden; pointer-events: none; } /* block: ".cell ul" makes lists a grid with a gap */
+.lines .mirror li { position: relative; }
+.lines .mirror .hit { position: absolute; left: 0; top: 0; height: 1.5em; margin: 0; display: flex; align-items: center; visibility: visible; pointer-events: auto; z-index: 1; }
+.lines textarea.txt { position: absolute; inset: 0; width: 100%; height: 100%; resize: none; overflow: hidden; background: transparent; }
+.lines textarea:focus-visible { outline: none; }
 .week .lines, .week .items { font-size: 13px; }
 /* Double-clicked day: its memo in a dialog (above the desktop icons while pinned). */
 .modal .lines { font-size: 14px; }
-.modal .lines input[type="text"] { font-size: 14px; padding: 2px 4px; }
-.modal .lines .hit { margin-right: 0; padding-left: 0; }
-.modal .lines li { display: flex; align-items: center; }
-.modal .lines input[type="text"] { flex: 1; width: auto; }
 /* Popover setting: the memo pops a little out of its cell over the neighbours (not a dialog; the window stays under the icons). */
 .cell.pop { position: relative; z-index: 3; overflow: visible; }
 .memo {
   /* At least the whole cell plus the pop margin, so a short memo still covers its own day instead of floating off one edge. */
   position: absolute; top: -6px; left: -6px; width: max(calc(100% + 12px), 240px); min-height: calc(100% + 12px); max-height: max(min(60vh, 420px), calc(100% + 12px));
-  display: flex; flex-direction: column; gap: 4px; padding: 8px; overflow-y: auto; cursor: auto;
+  display: flex; flex-direction: column; gap: 4px; padding: 8px; overflow-y: auto; scrollbar-width: none; cursor: auto; /* no bar: it flashed while the window caught up with a growing memo; the wheel still scrolls */
   border: 1px solid var(--line); border-radius: 8px; background: var(--bg); box-shadow: 0 8px 24px rgb(0 0 0 / 0.22);
   animation: pop 120ms ease-out;
 }
@@ -221,7 +223,9 @@ label.check { display: flex; align-items: center; gap: 8px; min-height: 24px; cu
 .week .memo { top: 0; min-height: 0; max-height: 100%; } /* week cells are already tall: stay compact, never past the cell */
 .memo-day { margin: 0; font-size: 12px; font-weight: 650; color: var(--muted); }
 .memo .lines { flex: none; overflow: visible; }
-.memo .lines li { white-space: normal; }
+/* Pinned: the memo is its own window (editor.rs) sized to it, so it fills the page instead of hanging off a cell. */
+html:has(.editor-win) { overflow: hidden; } /* the page itself showed a bar while the window caught up with a growing memo */
+.editor-win .memo { position: static; width: 100%; min-height: var(--min-h); max-height: var(--max-h); animation: none; box-shadow: none; border-color: var(--strong); }
 @keyframes pop { from { transform: scale(0.97); opacity: 0.6; } }
 @media (prefers-reduced-motion: reduce) { .memo { animation: none; } }
 .day-events { margin: 0 0 8px; padding: 0; display: grid; gap: 2px; font-size: 13px; color: var(--muted); }
