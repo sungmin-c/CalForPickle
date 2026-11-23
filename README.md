@@ -1,7 +1,13 @@
 # CalForPickle
 
-A minimalist Windows desktop calendar that Pickle can read and write.
-Pickle이 읽고 쓰는 Windows용 미니멀 데스크탑 캘린더. (한국어는 아래에)
+[![Release](https://img.shields.io/github/v/release/sungmin-c/CalForPickle)](https://github.com/sungmin-c/CalForPickle/releases/latest)
+[![License: MIT](https://img.shields.io/github/license/sungmin-c/CalForPickle)](LICENSE)
+![Windows](https://img.shields.io/badge/platform-Windows-blue)
+
+A minimalist Windows desktop calendar that an AI agent can read and write. Your events live as plain JSON in your own private GitHub repo. "Pickle" is the author's agent; any agent that can use git works.
+AI 에이전트가 읽고 쓸 수 있는 Windows용 미니멀 데스크탑 캘린더. 일정은 내 private GitHub 저장소의 JSON 파일이다. "Pickle"은 만든 사람의 에이전트 이름이고, git을 쓸 수 있는 에이전트면 된다.
+
+**[Download for Windows](https://github.com/sungmin-c/CalForPickle/releases/latest)** · [한국어](#한국어)
 
 ## English
 
@@ -43,6 +49,15 @@ read AGENT_GUIDE.md in that repo and follow its write procedure exactly.
 | Your private data repo | Events, tasks, `AGENT_GUIDE.md`, `upcoming.json` |
 | `%APPDATA%\CalForPickle` | Local copy, window settings, sync state |
 | Windows Credential Manager | The GitHub token (`CalForPickle` / `github-pat`) |
+
+### Security
+
+- The GitHub token is stored only in Windows Credential Manager. It is never returned to the UI or written to a file.
+- The app refuses to connect to a public repo, and re-checks that the repo is private.
+- The UI can only read and write the files the app syncs (`data/tasks.json`, `data/events/YYYY-MM.json`, `AGENT_GUIDE.md`, `upcoming.json`), so a compromised page cannot touch e.g. `.github/workflows/`.
+- Content-Security-Policy `default-src 'self'`; the webview has no network access of its own.
+- Use a fine-grained token limited to the one data repo (Contents: read and write).
+- The installer is not code-signed (see Install). Report vulnerabilities as a GitHub issue, without exploit details.
 
 ### Build
 
@@ -95,6 +110,15 @@ Needs Rust and the [Tauri 2 prerequisites](https://tauri.app/start/prerequisites
 | 내 private 데이터 저장소 | 일정, 할 일, `AGENT_GUIDE.md`, `upcoming.json` |
 | `%APPDATA%\CalForPickle` | 로컬 사본, 창 설정, 동기화 상태 |
 | Windows 자격 증명 관리자 | GitHub 토큰(`CalForPickle` / `github-pat`) |
+
+### 보안
+
+- GitHub 토큰은 Windows 자격 증명 관리자에만 저장된다. UI로 돌려주거나 파일에 쓰지 않는다.
+- public 저장소에는 연결을 거부하고, private인지 주기적으로 다시 확인한다.
+- UI는 앱이 동기화하는 파일(`data/tasks.json`, `data/events/YYYY-MM.json`, `AGENT_GUIDE.md`, `upcoming.json`)만 읽고 쓸 수 있어서, 화면이 뚫려도 `.github/workflows/` 같은 곳은 건드릴 수 없다.
+- Content-Security-Policy `default-src 'self'`: 웹뷰가 직접 네트워크에 나가지 못한다.
+- 토큰은 데이터 저장소 하나로 제한한 fine-grained 토큰(Contents: 읽기·쓰기)을 쓴다.
+- 설치본은 코드 서명이 없다(설치 항목 참고). 취약점은 GitHub issue로 알려 달라(공격 방법 상세는 적지 말 것).
 
 ### 빌드
 
