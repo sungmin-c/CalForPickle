@@ -278,6 +278,14 @@ dialog form { display: grid; gap: 12px; }
 .row { display: flex; flex-wrap: wrap; gap: 12px; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 4px; }
 .actions .danger:not(:has(+ .danger)) { margin-right: auto; } /* one or two delete buttons stay together on the left */
+.repeat { display: grid; gap: 12px; }
+.repeat .legend { font-size: 13px; font-weight: 500; }
+.repeat .row { align-items: start; }
+.repeat > p[aria-live]:empty { margin-top: -12px; } /* the live region stays in the page but takes no room while empty */
+.every { display: flex; align-items: center; gap: 8px; }
+.every input { width: 72px; }
+.chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.chips button[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
 .error { color: var(--accent); font-weight: 500; }
 .note { color: var(--muted); font-size: 13px; }
 .confirm { display: grid; gap: 8px; }
