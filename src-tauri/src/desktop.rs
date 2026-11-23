@@ -8,7 +8,7 @@
 #![allow(unsafe_op_in_unsafe_fn)] // the unsafe fns here are thin Win32 wrappers
 
 use std::{ptr::null, sync::{Mutex, OnceLock, atomic::{AtomicBool, Ordering}}, thread, time::Duration};
-use tauri::{AppHandle, Emitter, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 
 type H = isize;
 
@@ -30,6 +30,7 @@ unsafe extern "system" {
     fn SendMessageTimeoutW(h: H, msg: u32, w: usize, l: isize, flags: u32, ms: u32, out: *mut usize) -> isize;
     fn SetParent(child: H, parent: H) -> H;
     fn GetParent(h: H) -> H;
+    fn GetWindow(h: H, cmd: u32) -> H;
     fn IsWindow(h: H) -> i32;
     fn GetWindowLongPtrW(h: H, i: i32) -> isize;
     fn SetWindowLongPtrW(h: H, i: i32, v: isize) -> isize;
@@ -39,6 +40,7 @@ unsafe extern "system" {
     fn ShowWindow(h: H, cmd: i32) -> i32;
     fn GetSystemMetrics(i: i32) -> i32;
     fn GetDoubleClickTime() -> u32;
+    fn GetDpiForWindow(h: H) -> u32;
     fn SetWindowsHookExW(id: i32, f: unsafe extern "system" fn(i32, usize, isize) -> isize, m: H, thread: u32) -> H;
     fn UnhookWindowsHookEx(h: H) -> i32;
     fn CallNextHookEx(h: H, code: i32, w: usize, l: isize) -> isize;
@@ -62,6 +64,7 @@ const SWP_NOSIZE: u32 = 0x1;
 const SWP_NOMOVE: u32 = 0x2;
 const SWP_NOACTIVATE: u32 = 0x10;
 const SWP_FRAMECHANGED: u32 = 0x20;
+const GW_HWNDPREV: u32 = 3;
 const SMTO_ABORTIFHUNG: u32 = 2;
 const SW_SHOWNOACTIVATE: i32 = 4;
 const LVM_GETHOTITEM: u32 = 0x1000 + 61;
@@ -93,6 +96,13 @@ pub fn quitting() {
 
 unsafe fn attached(h: H, p: H) -> bool {
     p != 0 && IsWindow(p) != 0 && GetWindowLongPtrW(h, GWL_STYLE) & WS_CHILD != 0 && GetParent(h) == p
+}
+
+/// Explorer now and then swaps in a new wallpaper WorkerW right under the icons, over the pinned window (measured:
+/// DefView > new WorkerW > app). Under the icons (normal) or on top (raised for an edit) is fine.
+unsafe fn buried(h: H, p: H) -> bool {
+    let above = GetWindow(h, GW_HWNDPREV);
+    above != 0 && above != icons(p)
 }
 
 
@@ -156,6 +166,17 @@ unsafe fn attach(h: H, r: Rect) -> H {
     p
 }
 
+/// Attached, the window takes Progman's DPI (the primary monitor's), not that of the monitor under it: on a monitor with
+/// another scale the page drew 1.5x too big (measured: window DPI 144 on a 96 DPI monitor). Zoom cancels the difference.
+/// Tauri's scale_factor() stays at the top-level value (a child gets no WM_DPICHANGED), so the DPI is read from Win32.
+fn fit_zoom(window: &WebviewWindow, h: H, r: Rect) {
+    let m = window.monitor_from_point(((r.l + r.r) / 2) as f64, ((r.t + r.b) / 2) as f64).ok().flatten();
+    let own = unsafe { GetDpiForWindow(h) } as f64 / 96.0;
+    if let (Some(m), true) = (m, own > 0.0) {
+        let _ = window.set_zoom(m.scale_factor() / own);
+    }
+}
+
 unsafe fn detach(h: H, r: Rect, style: isize) {
     let cur = GetWindowLongPtrW(h, GWL_STYLE);
     SetParent(h, 0);
@@ -216,11 +237,16 @@ pub fn desktop_pin(window: WebviewWindow, on: bool) -> Result<(), String> {
             let mut s = ST.lock().unwrap();
             (s.pinned, s.hwnd, s.rect, s.style, s.parent, s.last_down, s.pressed) = (true, h, rect, style, 0, None, None);
         }
-        set_parent(h, unsafe { attach(h, rect) }); // 0: the watcher retries until the desktop exists
+        let p = unsafe { attach(h, rect) };
+        set_parent(h, p); // 0: the watcher retries until the desktop exists
+        if p != 0 {
+            fit_zoom(&window, h, rect);
+        }
     } else {
         ST.lock().unwrap().pinned = false;
         if unsafe { GetWindowLongPtrW(h, GWL_STYLE) } & WS_CHILD != 0 {
             unsafe { detach(h, rect, style) };
+            let _ = window.set_zoom(1.0);
             let _ = window.set_focus();
         }
         set_hook(&mut HOOK.lock().unwrap(), false, || 0, |k| unsafe {
@@ -363,13 +389,28 @@ pub fn start(app: AppHandle) {
             return;
         }
         let style = unsafe { GetWindowLongPtrW(h, GWL_STYLE) };
-        if style & WS_VISIBLE == 0 || unsafe { attached(h, p) } {
+        if style & WS_VISIBLE == 0 {
             continue;
         }
+        if unsafe { attached(h, p) } {
+            if unsafe { buried(h, p) } {
+                let _ = app.run_on_main_thread(move || unsafe {
+                    if attached(h, p) && buried(h, p) { // desktop_raise may have run in between
+                        SetWindowPos(h, icons(p), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                    }
+                });
+            }
+            continue;
+        }
+        let a = app.clone();
         let _ = app.run_on_main_thread(move || {
             let (pinned, h2, rect, _, p2) = snapshot();
             if pinned && h2 == h && !unsafe { attached(h, p2) } {
-                set_parent(h, unsafe { attach(h, rect) });
+                let p = unsafe { attach(h, rect) };
+                set_parent(h, p);
+                if let (true, Some(w)) = (p != 0, a.get_webview_window("main")) {
+                    fit_zoom(&w, h, rect);
+                }
             }
         });
     });
