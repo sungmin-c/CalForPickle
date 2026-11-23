@@ -108,6 +108,11 @@ describe("fitRows", () => {
     expect(fitRows([150, 176], 100)).toBe(1);
     expect(fitRows([22, 48], 10)).toBe(1);
   });
+  it("shows only \"+N\" when the cell holds one row but not the row plus \"+N\"", () => {
+    expect(fitRows([60, 84], 32)).toBe(0); // first row wrapped taller than the cell; 20px row + 4px gap + 20px "+N" = 44 > 32 (measured at 480px)
+    expect(fitRows([60, 84], 44)).toBe(1); // room for one clamped line and "+N"
+    expect(fitRows([60], 32)).toBe(1); // a lone row needs no "+N"
+  });
   it("leaves room for \"+N\" when the rows differ in height (wrapped tasks)", () => {
     expect(fitRows([22, 100], 40)).toBe(0); // row 1 fits but "+N" would not fit under it
     expect(fitRows([22, 100], 50)).toBe(1);

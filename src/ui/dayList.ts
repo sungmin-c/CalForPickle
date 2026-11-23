@@ -59,7 +59,8 @@ export function commitDay(day: string, original: Task[], drafts: Draft[]): Task[
 export function fitRows(bottoms: number[], avail: number, more = 24): number {
   const k = bottoms.findIndex((b) => b > avail + 1); // 1px slack: zoom and DPI scaling give fractional edges
   if (k < 0) return bottoms.length;
-  if (k === 0) return 1;
+  // A cell that holds one 20px row but not that row plus "+N" (narrow window, short cells) shows only "+N": row and "+N" together push "+N" past the edge, half cut.
+  if (k === 0) return bottoms.length > 1 && avail + 1 >= more - 4 && avail + 1 < 2 * more - 4 ? 0 : 1;
   let m = k;
   while (m > 0 && bottoms[m - 1] + more > avail + 1) m--;
   return m;

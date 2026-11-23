@@ -56,6 +56,11 @@ unsafe extern "system" {
     fn GetModuleHandleW(name: *const u16) -> H;
 }
 
+#[link(name = "dwmapi")]
+unsafe extern "system" {
+    fn DwmSetWindowAttribute(h: H, attr: u32, v: *const i32, size: u32) -> i32;
+}
+
 const GWL_STYLE: i32 = -16;
 const WS_POPUP: isize = 0x8000_0000;
 const WS_CHILD: isize = 0x4000_0000;
@@ -66,6 +71,7 @@ const SWP_NOACTIVATE: u32 = 0x10;
 const SWP_FRAMECHANGED: u32 = 0x20;
 const GW_HWNDPREV: u32 = 3;
 const SMTO_ABORTIFHUNG: u32 = 2;
+const SW_HIDE: i32 = 0;
 const SW_SHOWNOACTIVATE: i32 = 4;
 const LVM_GETHOTITEM: u32 = 0x1000 + 61;
 
@@ -147,12 +153,19 @@ unsafe fn desktop() -> H {
     progman
 }
 
+/// Re-parenting turns a visible top-level window into a child (or back), which DWM plays as the window going away
+/// (shrinks to the centre) or appearing (zooms in). Only top-level windows take this; on a child it fails, harmlessly.
+unsafe fn no_transition(h: H) {
+    DwmSetWindowAttribute(h, 3, &1, 4); // 3 = DWMWA_TRANSITIONS_FORCEDISABLED
+}
+
 /// Returns the new parent, 0 if the desktop isn't there yet. Keeps the window hidden if it was hidden (closed to the tray).
 unsafe fn attach(h: H, r: Rect) -> H {
     let p = desktop();
     if p == 0 {
         return 0;
     }
+    no_transition(h); // still top-level here
     let cur = GetWindowLongPtrW(h, GWL_STYLE);
     SetWindowLongPtrW(h, GWL_STYLE, (cur & !WS_POPUP) | WS_CHILD);
     SetParent(h, p);
@@ -179,9 +192,17 @@ fn fit_zoom(window: &WebviewWindow, h: H, r: Rect) {
 
 unsafe fn detach(h: H, r: Rect, style: isize) {
     let cur = GetWindowLongPtrW(h, GWL_STYLE);
+    let shown = cur & WS_VISIBLE != 0;
+    if shown {
+        ShowWindow(h, SW_HIDE); // hiding a child plays no animation; showing the new top-level would (zoom in)
+    }
     SetParent(h, 0);
-    SetWindowLongPtrW(h, GWL_STYLE, (style & !WS_VISIBLE) | (cur & WS_VISIBLE));
+    SetWindowLongPtrW(h, GWL_STYLE, style & !WS_VISIBLE);
+    no_transition(h); // top-level now, still hidden
     SetWindowPos(h, 0, r.l, r.t, r.r - r.l, r.b - r.t, SWP_FRAMECHANGED); // 0 = HWND_TOP
+    if shown {
+        ShowWindow(h, SW_SHOWNOACTIVATE);
+    }
 }
 
 /// The lock is never held across Win32 calls: they send messages to the window, and tao's events can call back in here.
