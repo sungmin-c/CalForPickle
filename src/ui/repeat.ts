@@ -2,9 +2,9 @@
 // any other valid rule is "advanced": read-only, and saved back as its original text unless the user replaces it (nextRule).
 import { tr } from "../i18n";
 import { instant, isDate, type Event } from "../model";
-import { parseRule, type Rule } from "../recur";
+import { expand, parseRule, type Rule } from "../recur";
 import { dateIn, zoneOf } from "../zone";
-import { weekday } from "./dates";
+import { addDays, weekday } from "./dates";
 
 export type RepeatFreq = "NONE" | "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY";
 
@@ -119,3 +119,12 @@ export function repeatError(f: RepeatForm, start: string): string {
 /** True when the chosen day does not exist in every month (29-31), or a yearly Feb 29: those occurrences are skipped (D6). */
 export const skipsMonths = (f: RepeatForm, start: string): boolean =>
   (f.freq === "MONTHLY" && f.mode === "date" && (f.monthDay ?? startDay(start)) >= 29) || (f.freq === "YEARLY" && start.slice(5, 10) === "02-29");
+
+/** "Delete this and later": the routine ending the day before `day` (a date in the series' zone), COUNT swapped for the
+ *  UNTIL since the two can't share a rule. null when no occurrence is left before `day`: the caller deletes the whole routine. */
+export function deleteFrom(e: Event, day: string): Event | null {
+  const first = seriesDate(e);
+  if (!expand([e], addDays(first, -2), day).some((o) => o.start.slice(0, 10) < day)) return null;
+  const keep = e.recurrence!.split(";").filter((p) => !/^(COUNT|UNTIL)=/.test(p));
+  return { ...e, recurrence: [...keep, `UNTIL=${addDays(day, -1).replace(/-/g, "")}`].join(";") };
+}

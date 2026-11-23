@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { expand } from "../src/recur";
+import { AGENT_GUIDE } from "../src/agentGuide";
+import { expand, parseRule } from "../src/recur";
 import { addDays } from "../src/ui/dates";
-import { defaultRepeat, formToRule, nextRule, repeatError, ruleToForm, skipsMonths } from "../src/ui/repeat";
+import { defaultRepeat, deleteFrom, formToRule, nextRule, repeatError, ruleToForm, skipsMonths } from "../src/ui/repeat";
+import type { Event } from "../src/model";
 import { ev } from "./fixtures";
 
 const dates = (start: string, recurrence: string) =>
@@ -167,5 +169,72 @@ describe("skip notice for days that some months lack (D6)", () => {
     expect(skipsMonths(y, "2028-02-29")).toBe(true);
     expect(skipsMonths(y, "2026-01-31")).toBe(false);
     expect(skipsMonths({ ...defaultRepeat(), freq: "WEEKLY" }, "2026-01-31")).toBe(false);
+  });
+});
+
+describe("delete this and later (deleteFrom)", () => {
+  const routine = (recurrence: string, o: Partial<Event> = {}) =>
+    ev({ id: "r", start: MON, end: addDays(MON, 1), allDay: true, recurrence, ...o });
+  const shown = (e: Event) => expand([e], "2026-01-01", "2029-01-01").map((x) => x.start);
+  const cut = (e: Event, day: string) => deleteFrom(e, day) as Event;
+
+  it("open-ended rule: UNTIL = the day before, earlier occurrences stay", () => {
+    const r = cut(routine("FREQ=WEEKLY;BYDAY=MO"), "2026-11-30");
+    expect(r.recurrence).toBe("FREQ=WEEKLY;BYDAY=MO;UNTIL=20261129");
+    expect(shown(r)).toEqual(["2026-11-16", "2026-11-23"]);
+  });
+  it("COUNT is dropped for UNTIL, same occurrences before the day", () => {
+    const orig = routine("FREQ=WEEKLY;BYDAY=MO;COUNT=5");
+    const r = cut(orig, "2026-11-30");
+    expect(r.recurrence).toBe("FREQ=WEEKLY;BYDAY=MO;UNTIL=20261129");
+    expect(shown(r)).toEqual(shown(orig).slice(0, 2));
+  });
+  it("COUNT with a skipped date: the skipped one stays skipped", () => {
+    const r = cut(routine("FREQ=WEEKLY;BYDAY=MO;COUNT=5", { exdates: ["2026-11-23"] }), "2026-12-07");
+    expect(shown(r)).toEqual(["2026-11-16", "2026-11-30"]);
+    expect(r.exdates).toEqual(["2026-11-23"]);
+  });
+  it("an existing UNTIL (with or without time) is replaced, RRULE: prefix kept", () => {
+    expect(cut(routine("FREQ=DAILY;UNTIL=20261231"), "2026-11-20").recurrence).toBe("FREQ=DAILY;UNTIL=20261119");
+    expect(cut(routine("RRULE:FREQ=DAILY;UNTIL=20261231T235959Z"), "2026-11-20").recurrence).toBe("RRULE:FREQ=DAILY;UNTIL=20261119");
+  });
+  it("timed series: the day is read in the series' own zone", () => {
+    const e = ev({ id: "t", recurrence: "FREQ=DAILY", start: "2026-11-16T14:00:00+09:00", end: "2026-11-16T15:00:00+09:00" });
+    const r = cut(e, "2026-11-18");
+    expect(r.recurrence).toBe("FREQ=DAILY;UNTIL=20261117");
+    expect(shown(r)).toEqual(["2026-11-16T14:00:00+09:00", "2026-11-17T14:00:00+09:00"]);
+  });
+  it("no occurrence before the day: null (delete the whole routine)", () => {
+    expect(deleteFrom(routine("FREQ=WEEKLY;BYDAY=MO"), MON)).toBeNull();
+    expect(deleteFrom(routine("FREQ=WEEKLY;COUNT=3"), MON)).toBeNull();
+  });
+  it("first occurrence is not the start date (BYDAY elsewhere): null", () => {
+    // 2026-11-18 is a Wednesday; the first Monday is 11-23.
+    expect(deleteFrom(routine("FREQ=WEEKLY;BYDAY=MO", { start: "2026-11-18", end: "2026-11-19" }), "2026-11-23")).toBeNull();
+  });
+  it("everything earlier was skipped: null", () => {
+    expect(deleteFrom(routine("FREQ=WEEKLY;BYDAY=MO", { exdates: ["2026-11-16", "2026-11-23"] }), "2026-11-30")).toBeNull();
+  });
+  it("the result is still a rule the form draws, ending on a date", () => {
+    const r = cut(routine("FREQ=WEEKLY;BYDAY=MO;COUNT=5"), "2026-11-30");
+    expect(ruleToForm(r.recurrence!, MON)).toMatchObject({ end: "until", until: "2026-11-29" });
+  });
+});
+
+describe("AGENT_GUIDE rule examples match the engine and the form", () => {
+  const drawn = ["FREQ=DAILY;INTERVAL=2", "FREQ=WEEKLY;BYDAY=MO,WE", "FREQ=MONTHLY;BYMONTHDAY=15", "FREQ=MONTHLY;BYMONTHDAY=-1", "FREQ=MONTHLY;BYDAY=2MO", "FREQ=MONTHLY;BYDAY=-1FR", "FREQ=YEARLY", "FREQ=DAILY;COUNT=5", "FREQ=DAILY;UNTIL=20261231"];
+  const notDrawn = ["FREQ=WEEKLY;BYMONTH=3", "FREQ=MONTHLY;BYMONTHDAY=1,15", "FREQ=MONTHLY;BYDAY=1MO,3MO", "FREQ=MONTHLY;BYMONTHDAY=-2", "FREQ=DAILY;UNTIL=20261231T235959Z", "FREQ=YEARLY;BYMONTH=3"];
+  it("documents the new syntax and the read-only warning", () => {
+    for (const w of ["BYMONTHDAY=-1", "BYDAY=2MO", "BYDAY=-1FR", "UI가 못 그리는 규칙"]) expect(AGENT_GUIDE).toContain(w);
+  });
+  it("drawn ones draw, the others parse but stay read-only", () => {
+    for (const t of drawn) expect(ruleToForm(t, "2026-11-15"), t).not.toBeNull();
+    for (const t of notDrawn) {
+      expect(() => parseRule(t), t).not.toThrow();
+      expect(ruleToForm(t, "2026-11-15"), t).toBeNull();
+    }
+  });
+  it("no longer says Nth weekday is unsupported", () => {
+    expect(AGENT_GUIDE).not.toContain("몇째 주");
   });
 });

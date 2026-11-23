@@ -72,7 +72,7 @@ describe("5. app edit right after a Pickle push", () => {
     await sync.load();
     await sync.syncNow();
     expect(sync.status().state).toBe("done");
-    expect(r.files["AGENT_GUIDE.md"]).toMatch(/^<!-- agent-guide v7 -->/);
+    expect(r.files["AGENT_GUIDE.md"]).toMatch(/^<!-- agent-guide v8 -->/);
     expect(r.files["AGENT_GUIDE.md"]).toContain("generatedAt");
 
     // Pickle commits a new task directly to the repo.

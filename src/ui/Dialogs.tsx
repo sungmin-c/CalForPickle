@@ -5,7 +5,7 @@ import type { Event, Priority, Status, Task } from "../model";
 import { describeRule } from "../recur";
 import { addMonths, fromForm, longDate, toForm, weekday, type EventForm } from "./dates";
 import { Dot } from "./icons";
-import { defaultRepeat, formToRule, nextRule, repeatError, ruleToForm, seriesDate, skipsMonths, startDay, startNth, type RepeatForm } from "./repeat";
+import { defaultRepeat, deleteFrom, formToRule, nextRule, repeatError, ruleToForm, seriesDate, skipsMonths, startDay, startNth, type RepeatForm } from "./repeat";
 
 /** Native modal dialog: the page behind is inert (focus stays inside); Esc or a click on the backdrop closes it.
  *  only closes when press and release both land outside, so a drag out of a text field keeps it open. */
@@ -277,23 +277,30 @@ export function EventDialog(p: {
         {error && <p class="error" role="alert">{error}</p>}
         {confirmDelete ? (
           <div class="confirm" role="group" aria-labelledby="del-q">
-            <p id="del-q">{tr.confirmDeleteRoutine(p.event.title)}</p>
+            <p id="del-q">{p.day ? tr.deleteWhich(p.event.title) : tr.confirmDeleteRoutine(p.event.title)}</p>
             <div class="actions">
-              <button type="button" class="danger" onClick={() => p.onSave({ ...p.event, deleted: true })}>{tr.delete}</button>
+              {p.day ? (
+                <>
+                  <button type="button" class="danger" onClick={() => p.onSave({ ...p.event, exdates: [...new Set([...(p.event.exdates ?? []), p.day!])].sort() })}>
+                    {tr.deleteThis(tr.md(p.day))}
+                  </button>
+                  <button type="button" class="danger" onClick={() => p.onSave(deleteFrom(p.event, p.day!) ?? { ...p.event, deleted: true })}>
+                    {tr.deleteFromDay(tr.md(p.day))}
+                  </button>
+                  <button type="button" class="danger" onClick={() => p.onSave({ ...p.event, deleted: true })}>{tr.deleteAll}</button>
+                </>
+              ) : (
+                <button type="button" class="danger" onClick={() => p.onSave({ ...p.event, deleted: true })}>{tr.delete}</button>
+              )}
               <button type="button" ref={cancelRef} onClick={() => setConfirmDelete(false)}>{tr.cancel}</button>
             </div>
           </div>
         ) : (
           <div class="actions">
-            {!p.isNew && p.event.recurrence && p.day && (
-              <button type="button" class="danger" onClick={() => p.onSave({ ...p.event, exdates: [...new Set([...(p.event.exdates ?? []), p.day!])].sort() })}>
-                {tr.deleteOne}
-              </button>
-            )}
             {!p.isNew && (
               <button type="button" class="danger"
                 onClick={() => (p.event.recurrence ? setConfirmDelete(true) : p.onSave({ ...p.event, deleted: true }))}>
-                {p.event.recurrence ? tr.deleteAll : tr.delete}
+                {tr.delete}
               </button>
             )}
             <button type="button" onClick={p.onClose}>{tr.cancel}</button>

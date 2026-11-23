@@ -1,5 +1,5 @@
 export const GUIDE_PATH = "AGENT_GUIDE.md";
-const MARKER = "<!-- agent-guide v7 -->";
+const MARKER = "<!-- agent-guide v8 -->";
 
 /** Rewrite the repo guide when it is missing or carries another version marker (DESIGN §4.3). */
 export function needsGuide(text: string | undefined): boolean {
@@ -72,8 +72,12 @@ upcoming.json             앱이 재생성하는 요약 (편집 금지)
 - \`order\`: 같은 \`due\` 날 칸 안의 표시 순서(0 이상 정수). 앱은 미완료 → 완료, 그 안에서 \`order\` 순으로 보여 준다. 없으면 같은 날 맨 뒤(제목순).
 - \`recurrence\`: 반복 규칙(RFC 5545 RRULE 본문, \`RRULE:\` 접두어 없이). 반복이 아니면 키를 생략한다. 앱이 펼칠 수 있는 범위만 쓴다:
   - \`FREQ\`: \`DAILY | WEEKLY | MONTHLY | YEARLY\`. 함께 쓸 수 있는 키: \`INTERVAL\`, \`COUNT\` 또는 \`UNTIL\`(둘 중 하나), 그리고 DAILY는 \`BYDAY\`·\`BYMONTH\`·\`BYMONTHDAY\`, WEEKLY는 \`BYDAY\`·\`BYMONTH\`, MONTHLY·YEARLY는 \`BYMONTH\`·\`BYMONTHDAY\`.
-  - \`BYDAY\`는 요일 코드만(\`MO,WE\`). \`2MO\` 같은 "몇째 주"는 안 된다. \`BYSETPOS\`, \`WKST\` 등 다른 키도 안 된다. 이 범위를 벗어나면 앱이 그 파일 병합을 보류한다.
-  - \`UNTIL=YYYYMMDD\`는 그날 회차까지 포함한다(일정의 시간대 기준). \`start\`가 첫 회차이고 \`end\`와의 길이가 모든 회차에 적용된다.
+  - \`BYDAY\`: 요일 코드(\`MO,WE\`). MONTHLY에서만 앞에 순번을 붙일 수 있다: \`2MO\`(둘째 월요일), \`-1FR\`(마지막 금요일). 순번은 1~5, 끝에서부터는 -1~-5. 그 달에 없는 순번(다섯째 등)은 그 달을 건너뛴다.
+  - \`BYMONTHDAY\`: 1~31, 또는 끝에서부터 -1~-31. \`-1\`이 매달 말일이다. 29~31은 그 날이 없는 달을 건너뛴다.
+  - \`BYSETPOS\`, \`WKST\` 등 다른 키는 안 된다. \`COUNT\`와 \`UNTIL\`을 함께 써도 안 된다. 이 범위를 벗어나면 앱이 그 파일 병합을 보류한다.
+  - \`UNTIL=YYYYMMDD\`는 그날 회차까지 포함한다(일정의 시간대 기준). 어느 날부터 시리즈를 끝내려면 그 전날을 \`UNTIL\`로 쓰고, \`COUNT\`가 있으면 지운다. \`start\`가 첫 회차이고 \`end\`와의 길이가 모든 회차에 적용된다.
+  - 편집창이 폼으로 그리는 모양: 매일 \`FREQ=DAILY[;INTERVAL=n]\` / 매주 \`FREQ=WEEKLY;BYDAY=MO,WE\`(요일만) / 매달 \`BYMONTHDAY=15\`·\`BYMONTHDAY=-1\`·\`BYDAY=2MO\`·\`BYDAY=-1FR\` 중 하나(날짜와 요일을 함께 쓰지 않는다) / 매년 \`FREQ=YEARLY\`(시작일의 월·일) / 끝은 \`COUNT=n\` 또는 날짜만 있는 \`UNTIL=YYYYMMDD\`.
+  - **UI가 못 그리는 규칙**(예: DAILY·WEEKLY·MONTHLY의 \`BYMONTH\`, \`BYMONTHDAY=1,15\`, \`BYDAY=1MO,3MO\`, \`BYMONTHDAY=-2\`, 시각이 붙은 \`UNTIL\`, 시작일과 다른 월·일의 YEARLY)도 앱은 펼쳐서 보여 준다. 다만 사용자가 편집창에서 그 규칙을 열면 읽기 전용 문장으로만 보이고, 바꾸려면 반복을 통째로 새로 정해야 한다. 가능하면 위 모양으로 쓴다.
 - \`tz\`: 시각을 입력한 IANA 시간대(예: \`"America/New_York"\`). 있으면 반복 회차가 그 시간대의 서머타임을 따라 같은 시각에 온다. 없으면 \`start\`의 오프셋이 모든 회차에 고정으로 쓰인다. 종일 일정에는 쓰지 않는다.
 - \`exdates\`: 반복 중 빠진 회차의 날짜(\`"YYYY-MM-DD"\`, 그 일정의 \`tz\`, 없으면 \`start\` 오프셋 기준) 배열. 회차 하나를 지우려면 여기에 날짜를 넣고 \`updatedAt\`을 갱신한다. 없으면 키를 생략한다.
 - \`color\`: 제목 앞에 보이는 색 점, \`"#RRGGBB"\`(16진수 6자리). 제목에 HTML(\`<font>\` 등)을 넣지 말고 이 키를 쓴다. 다른 형식이면 앱이 그 파일 병합을 보류한다.
