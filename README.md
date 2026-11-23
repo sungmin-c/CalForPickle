@@ -57,7 +57,7 @@ read AGENT_GUIDE.md in that repo and follow its write procedure exactly.
 - The UI can only read and write the files the app syncs (`data/tasks.json`, `data/events/YYYY-MM.json`, `AGENT_GUIDE.md`, `upcoming.json`), so a compromised page cannot touch e.g. `.github/workflows/`.
 - Content-Security-Policy `default-src 'self'`; the webview has no network access of its own.
 - Use a fine-grained token limited to the one data repo (Contents: read and write).
-- The installer is not code-signed (see Install). Report vulnerabilities as a GitHub issue, without exploit details.
+- The installer is not code-signed (see Install). Report vulnerabilities privately via the repo's **Security** tab → **Report a vulnerability**, not as a public issue.
 
 ### Build
 
@@ -118,7 +118,7 @@ Needs Rust and the [Tauri 2 prerequisites](https://tauri.app/start/prerequisites
 - UI는 앱이 동기화하는 파일(`data/tasks.json`, `data/events/YYYY-MM.json`, `AGENT_GUIDE.md`, `upcoming.json`)만 읽고 쓸 수 있어서, 화면이 뚫려도 `.github/workflows/` 같은 곳은 건드릴 수 없다.
 - Content-Security-Policy `default-src 'self'`: 웹뷰가 직접 네트워크에 나가지 못한다.
 - 토큰은 데이터 저장소 하나로 제한한 fine-grained 토큰(Contents: 읽기·쓰기)을 쓴다.
-- 설치본은 코드 서명이 없다(설치 항목 참고). 취약점은 GitHub issue로 알려 달라(공격 방법 상세는 적지 말 것).
+- 설치본은 코드 서명이 없다(설치 항목 참고). 취약점은 공개 issue 대신 저장소의 **Security** 탭 → **Report a vulnerability**로 비공개 제보해 달라.
 
 ### 빌드
 
