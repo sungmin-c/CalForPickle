@@ -167,9 +167,10 @@ export function App() {
       applyLang(s.lang);
       prefs.current = s;
       setSettings(s);
+      // Engine first (local files only, no network): the window then appears with the calendar, not the loading line.
+      await reconnect(s);
       await placeFor(layoutKey(await screens()), s);
       applyAutostart(s.autostart).catch(console.error);
-      await reconnect(s);
     })().catch((e) => {
       setFatal(String(e));
       void win.show();
