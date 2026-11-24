@@ -1,3 +1,4 @@
+mod autostart;
 mod desktop;
 mod editor;
 mod files;
@@ -51,7 +52,6 @@ pub fn run() {
     tauri::Builder::default()
         // Must be first: a second launch exits here and brings the running window forward instead.
         .plugin(tauri_plugin_single_instance::init(|app, _, _| show_main(app)))
-        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .setup(|app| {
             let show = MenuItem::with_id(app, "show", "열기", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
@@ -88,6 +88,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             app_exit,
             set_tray_labels,
+            autostart::autostart_enabled,
+            autostart::autostart_set,
             desktop::desktop_pin,
             desktop::desktop_raise,
             editor::editor_show,

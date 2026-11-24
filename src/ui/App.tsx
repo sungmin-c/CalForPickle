@@ -2,7 +2,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
 import { availableMonitors, getCurrentWindow } from "@tauri-apps/api/window";
-import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { setLang, tr, type Lang } from "../i18n";
 import type { Event, Task } from "../model";
@@ -71,7 +70,7 @@ async function canPin() {
 
 async function applyAutostart(on: boolean) {
   if (!import.meta.env.PROD) return; // a dev run would register the target\debug exe in the Run key
-  if ((await isEnabled()) !== on) await (on ? enable() : disable());
+  if ((await invoke<boolean>("autostart_enabled")) !== on) await invoke("autostart_set", { on });
 }
 
 const ICON: Record<SyncState, () => preact.JSX.Element> = { done: Check, pending: Clock, offline: Offline, merged: Merge };
