@@ -11,7 +11,7 @@ import { routineList } from "../recur";
 import { today } from "./dates";
 import { EventDialog, newEvent, TaskDialog } from "./Dialogs";
 import { Check, Clock, Close, Merge, Next, Offline, Prev, Gear, Menu, Pin, Warn } from "./icons";
-import { fitsOnScreen, insideOneScreen, normalizeSettings, type Settings } from "./prefs";
+import { fitsOnScreen, insideOneScreen, layoutKey, normalizeSettings, placementFor, type Rect, type Settings } from "./prefs";
 import { SettingsDialog } from "./Settings";
 import { TaskPanel } from "./Tasks";
 
@@ -36,17 +36,29 @@ async function boot(s: Settings, onChange: () => void): Promise<Engine> {
   return { sync, live, hasToken, stop: live ? sync.start() : () => {} };
 }
 
-/** The window starts hidden (tauri.conf.json) so it never flashes at the default spot before this runs. */
-async function restoreWindow(s: Settings) {
+/** The window starts hidden (tauri.conf.json) so it never flashes at the default spot before this runs.
+ *  False when there is nothing to restore or it is off every monitor: the window stays where it is. */
+async function restoreWindow(r: Rect | undefined) {
   const w = getCurrentWindow();
-  if (s.window) {
-    const screens = (await availableMonitors()).map(({ workArea: { position: p, size: z } }) =>
-      ({ x: p.x, y: p.y, width: z.width, height: z.height }));
-    if (fitsOnScreen(s.window, screens)) {
-      await w.setPosition(new PhysicalPosition(s.window.x, s.window.y));
-      await w.setSize(new PhysicalSize(s.window.width, s.window.height));
-    }
-  }
+  if (!r) return false;
+  const work = (await availableMonitors()).map(({ workArea: { position: p, size: z } }) =>
+    ({ x: p.x, y: p.y, width: z.width, height: z.height }));
+  if (!fitsOnScreen(r, work)) return false;
+  await w.setPosition(new PhysicalPosition(r.x, r.y));
+  await w.setSize(new PhysicalSize(r.width, r.height));
+  return true;
+}
+
+/** Full monitor bounds in physical pixels. */
+async function screens() {
+  return (await availableMonitors()).map(({ position: q, size: m }) => ({ x: q.x, y: q.y, width: m.width, height: m.height }));
+}
+
+/** Outer position and inner size, what restoreWindow sets. Unpinned only: a pinned window's rect reads back scaled. */
+async function geometry(): Promise<Rect> {
+  const w = getCurrentWindow();
+  const [p, z] = await Promise.all([w.outerPosition(), w.innerSize()]);
+  return { x: p.x, y: p.y, width: z.width, height: z.height };
 }
 
 /** Pinned: on the desktop under the icons, fixed in place, clicked through wherever no icon covers it (desktop.rs).
@@ -62,9 +74,8 @@ async function applyPin(on: boolean) {
 /** The whole window must sit on one monitor to be pinned. */
 async function canPin() {
   const w = getCurrentWindow();
-  const [p, z, ms] = await Promise.all([w.outerPosition(), w.outerSize(), availableMonitors()]);
-  return insideOneScreen({ x: p.x, y: p.y, width: z.width, height: z.height },
-    ms.map(({ position: q, size: m }) => ({ x: q.x, y: q.y, width: m.width, height: m.height })));
+  const [p, z, ms] = await Promise.all([w.outerPosition(), w.outerSize(), screens()]);
+  return insideOneScreen({ x: p.x, y: p.y, width: z.width, height: z.height }, ms);
 }
 
 
@@ -86,6 +97,7 @@ export function App() {
   const ref = useRef<Engine | null>(null);
   const [settings, setSettings] = useState<Settings>(() => normalizeSettings(null));
   const prefs = useRef(settings); // latest saved settings, for writes from event listeners
+  const layout = useRef(""); // layoutKey of the monitors the window is placed for
   const [offScreen, setOffScreen] = useState(false); // the last pin attempt was refused
   const [, setTick] = useState(0);
   const bump = () => setTick((t) => t + 1);
@@ -123,27 +135,39 @@ export function App() {
 
   useEffect(() => {
     const win = getCurrentWindow();
-    const geometry = async () => {
-      const [p, z] = await Promise.all([win.outerPosition(), win.innerSize()]);
-      return { x: p.x, y: p.y, width: z.width, height: z.height };
-    };
     // Showing the window fires a move event too; only a geometry different from startup is a user change worth writing.
     let last = "";
+    // While the window follows a monitor change, its moves are not the user's.
+    let switching = false;
+    let timer: ReturnType<typeof setTimeout> | undefined; // pending geometry save
+    /** Puts the window where it was on this arrangement, pinned if it was; never seen: centred, unpinned. */
+    const placeFor = async (key: string, s: Settings) => {
+      switching = true;
+      clearTimeout(timer);
+      try {
+        layout.current = key;
+        const place = placementFor(s, key);
+        const startup = !last;
+        if (!startup && s.alwaysBottom) await applyPin(false); // moving a child of the desktop would move it in Progman's space
+        if (!(await restoreWindow(place?.window).catch(() => false)) && !startup) await win.center(); // at startup the config centres it
+        if (startup) await win.show(); // before pinning: showing rewrites the window style (desktop.rs)
+        const g = await geometry();
+        last = JSON.stringify(g);
+        const pin = !!place?.pinned && (await canPin());
+        if (pin) await applyPin(true);
+        setOffScreen(!!place?.pinned && !pin);
+        // The old single place becomes this arrangement's first entry, so it is not reused on another one.
+        await saveSettings({ alwaysBottom: pin, window: g, layouts: s.layouts ?? (place ? { [key]: place } : {}) });
+      } finally {
+        switching = false;
+      }
+    };
     (async () => {
       const s = normalizeSettings(await tauriLocal.read(SETTINGS_PATH));
       applyLang(s.lang);
       prefs.current = s;
       setSettings(s);
-      await restoreWindow(s).catch(console.error);
-      await win.show(); // before pinning: showing rewrites the window style (desktop.rs)
-      last = JSON.stringify(await geometry());
-      if (s.alwaysBottom) {
-        if (await canPin()) await applyPin(true);
-        else {
-          setOffScreen(true); // e.g. a monitor came off since last time
-          await saveSettings({ alwaysBottom: false });
-        }
-      }
+      await placeFor(layoutKey(await screens()), s);
       applyAutostart(s.autostart).catch(console.error);
       await reconnect(s);
     })().catch((e) => {
@@ -155,21 +179,33 @@ export function App() {
       await invoke("app_exit");
     });
     // Save position and size 0.5 s after moving or resizing stops. Minimized/maximized geometry is not a place to come back to.
-    let timer: ReturnType<typeof setTimeout> | undefined;
     const onGeometry = () => {
       // Pinned, the window is a child of the desktop and its rect reads back scaled: never save it.
       // Before startup finishes, prefs still hold the defaults (unpinned): a recreated window saved its child rect that way.
-      if (prefs.current.alwaysBottom || !last) return;
+      if (switching || prefs.current.alwaysBottom || !last) return;
       setOffScreen(false);
       clearTimeout(timer);
       timer = setTimeout(async () => {
+        if (switching || prefs.current.alwaysBottom) return; // pinned in the meantime: the rect would read back scaled
         if ((await win.isMinimized()) || (await win.isMaximized())) return;
+        // A monitor just went away and Windows moved the window off it: not a place chosen for the old arrangement.
+        if (layoutKey(await screens()) !== layout.current) return;
         const g = await geometry();
         if (JSON.stringify(g) === last) return;
         last = JSON.stringify(g);
-        await saveSettings({ window: g });
+        await remember({ window: g });
       }, 500);
     };
+    // HDMI in or out. The new arrangement must read the same twice in a row: plugging in passes through in-between modes.
+    let seen = "";
+    const monitorPoll = setInterval(async () => {
+      if (switching || !last) return;
+      const key = layoutKey(await screens());
+      if (switching || key === layout.current) return void (seen = "");
+      if (key !== seen) return void (seen = key);
+      seen = "";
+      await placeFor(key, prefs.current).catch(console.error);
+    }, 2000);
     // Pinned, the window sits under the desktop icons and gets no mouse input; desktop.rs passes on left clicks over
     // empty desktop. Replay them on the element under the pointer, with the focus change a real press would make.
     const unDbl = listen<["down" | "up", number, number, boolean]>("desktop-mouse", ({ payload: [kind, px, py, dbl] }) => {
@@ -240,6 +276,7 @@ export function App() {
       void unResized.then((f) => f());
       clearTimeout(timer);
       clearInterval(clock);
+      clearInterval(monitorPoll);
     };
   }, []);
 
@@ -249,6 +286,12 @@ export function App() {
     prefs.current = s;
     setSettings(s);
     await tauriLocal.write(SETTINGS_PATH, JSON.stringify(s, null, 2) + "\n");
+  };
+  /** A place or pin the user chose: also kept for the current monitor arrangement. */
+  const remember = (patch: { window?: Rect; alwaysBottom?: boolean }) => {
+    const s = prefs.current, window = patch.window ?? s.window;
+    const pinned = patch.alwaysBottom ?? s.alwaysBottom;
+    return saveSettings({ ...patch, layouts: window ? { ...s.layouts, [layout.current]: { window, pinned } } : s.layouts });
   };
 
   // sync keeps the same array until its data changes; a fresh filter() per render would make Calendar re-measure every cell.
@@ -322,8 +365,9 @@ export function App() {
           title={pinned ? tr.pinnedTitle : tr.unpinnedTitle}
           onClick={async () => {
             if (!pinned && !(await canPin())) return setOffScreen(true);
+            const g = pinned ? undefined : await geometry(); // read before pinning, while the rect is still true
             await applyPin(!pinned);
-            await saveSettings({ alwaysBottom: !pinned });
+            await remember({ alwaysBottom: !pinned, ...(g && { window: g }) });
           }}><Pin /></button>
         <button type="button" class="icon" aria-label={tr.settings} onClick={() => setShowSettings(true)}><Gear /></button>
         <button type="button" class="icon" aria-label={tr.close} title={tr.close}

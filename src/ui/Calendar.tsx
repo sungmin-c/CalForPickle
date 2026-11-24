@@ -66,7 +66,7 @@ export function Calendar(p: {
     const rows = days.length / 7;
     const box = memoBox(cell.getBoundingClientRect(), { col: i % 7, south: rows > 2 && i >= days.length - 14, last: i >= days.length - 7, week: p.view === "week", vh: innerHeight });
     const events = shownEvents.filter((e) => onDay(e, editing.day)).sort(byTime);
-    void emitTo("editor", "editor-open", { day: editing.day, at: editing.at, tasks: dayList(p.tasks, editing.day), events, box, lang });
+    void emitTo("editor", "editor-open", { day: editing.day, at: editing.at, tasks: dayList(p.tasks, editing.day), events, box, lang, dpr: devicePixelRatio });
   }, [editing, p.editorWin]);
   useEffect(() => {
     if (!p.editorWin) return;

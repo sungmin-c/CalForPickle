@@ -1,7 +1,7 @@
 // @ts-expect-error no @types/node (same as vite.config.ts); Vitest empties CSS imports, even ?raw
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { fitsOnScreen, insideOneScreen, MIN_OPACITY, normalizeSettings } from "../src/ui/prefs";
+import { fitsOnScreen, insideOneScreen, layoutKey, MIN_OPACITY, normalizeSettings, placementFor } from "../src/ui/prefs";
 
 const css: string = readFileSync(new URL("../src/ui/app.css", import.meta.url), "utf8");
 
@@ -46,6 +46,36 @@ describe("normalizeSettings", () => {
   it("drops a malformed window rect", () => {
     for (const w of [{ x: 0, y: 0, width: 0, height: 600 }, { x: "1", y: 0, width: 900, height: 600 }, { x: 0, y: 0 }, null])
       expect(normalizeSettings(JSON.stringify({ window: w })).window).toBeUndefined();
+  });
+});
+
+describe("monitor layouts", () => {
+  const laptop = { x: 0, y: 0, width: 2880, height: 1800 };
+  const hdmi = { x: 2880, y: 0, width: 1920, height: 1080 };
+  const at = (x: number) => ({ x, y: 10, width: 900, height: 600 });
+
+  it("names an arrangement the same whatever order the monitors come in, and tells arrangements apart", () => {
+    expect(layoutKey([laptop, hdmi])).toBe(layoutKey([hdmi, laptop]));
+    expect(layoutKey([laptop])).not.toBe(layoutKey([laptop, hdmi]));
+    expect(layoutKey([laptop, { ...hdmi, x: -1920 }])).not.toBe(layoutKey([laptop, hdmi])); // monitor moved to the left
+  });
+
+  it("keeps valid layouts and drops broken entries", () => {
+    const s = normalizeSettings(JSON.stringify({ layouts: {
+      a: { window: at(5), pinned: true }, b: { window: at(7) }, c: { window: { x: 0 } }, d: 3,
+    } }));
+    expect(s.layouts).toEqual({ a: { window: at(5), pinned: true }, b: { window: at(7), pinned: false } });
+    expect(normalizeSettings('{"layouts": []}').layouts).toBeUndefined();
+  });
+
+  it("looks the arrangement up, falling back to the old single place only before any layout was saved", () => {
+    const one = layoutKey([laptop]), two = layoutKey([laptop, hdmi]);
+    const old = normalizeSettings(JSON.stringify({ window: at(3000), alwaysBottom: true }));
+    expect(placementFor(old, two)).toEqual({ window: at(3000), pinned: true });
+    expect(placementFor(normalizeSettings("{}"), two)).toBeUndefined();
+    const s = normalizeSettings(JSON.stringify({ window: at(3000), alwaysBottom: true, layouts: { [two]: { window: at(3000), pinned: true } } }));
+    expect(placementFor(s, two)).toEqual({ window: at(3000), pinned: true });
+    expect(placementFor(s, one)).toBeUndefined(); // never placed on the laptop alone: centred, unpinned
   });
 });
 

@@ -14,8 +14,9 @@ fn editor(app: &AppHandle) -> Result<WebviewWindow, String> {
 
 fn place(win: &WebviewWindow, w: i32, h: i32) -> Result<(), String> {
     let (x, y, up) = *ANCHOR.lock().unwrap();
-    win.set_size(PhysicalSize::new(w.max(1) as u32, h.max(1) as u32)).map_err(|e| e.to_string())?;
-    win.set_position(PhysicalPosition::new(x, if up { y - h } else { y })).map_err(|e| e.to_string())
+    // Move first: onto another monitor the window changes DPI and Windows rescales its size; set_size after that sticks.
+    win.set_position(PhysicalPosition::new(x, if up { y - h } else { y })).map_err(|e| e.to_string())?;
+    win.set_size(PhysicalSize::new(w.max(1) as u32, h.max(1) as u32)).map_err(|e| e.to_string())
 }
 
 /// x, y, w, h in physical pixels relative to the pinned window; `up`: y is the bottom edge and the memo grows upward.

@@ -5,6 +5,7 @@
   "windows": ["main", "editor"],
   "permissions": [
     "core:default",
+    "core:window:allow-center",
     "core:window:allow-hide",
     "core:window:allow-set-position",
     "core:window:allow-set-resizable",

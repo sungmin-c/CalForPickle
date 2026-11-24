@@ -26,6 +26,24 @@ export interface Settings {
   memoOpen?: boolean;
   /** Outer position and inner size in physical pixels. */
   window?: Rect;
+  /** Place and pin per monitor arrangement (layoutKey), so plugging a monitor in or out puts the calendar back where it was. */
+  layouts?: Record<string, Placement>;
+}
+
+export interface Placement {
+  window: Rect;
+  pinned: boolean;
+}
+
+/** Monitor bounds in physical pixels, any order. Scale is left out: changing it keeps every monitor where it is. */
+export function layoutKey(screens: Rect[]): string {
+  return screens.map((m) => `${m.x},${m.y},${m.width}x${m.height}`).sort().join("|");
+}
+
+/** Before layouts existed, the single window/alwaysBottom pair belonged to whatever arrangement was there: keep using it. */
+export function placementFor(s: Settings, key: string): Placement | undefined {
+  if (s.layouts) return s.layouts[key];
+  return s.window && { window: s.window, pinned: s.alwaysBottom };
 }
 
 /** The background may vanish completely (app.css .clear). */
@@ -56,10 +74,21 @@ export function normalizeSettings(raw: string | null): Settings {
   if (o.cellPopover === true) s.cellPopover = true;
   if (typeof o.owner === "string") s.owner = o.owner;
   if (typeof o.repo === "string") s.repo = o.repo;
-  const w = o.window;
-  if (isObj(w) && isInt(w.x) && isInt(w.y) && isInt(w.width) && isInt(w.height) && w.width > 0 && w.height > 0)
-    s.window = { x: w.x, y: w.y, width: w.width, height: w.height };
+  const w = rect(o.window);
+  if (w) s.window = w;
+  if (isObj(o.layouts)) {
+    s.layouts = {};
+    for (const [k, v] of Object.entries(o.layouts)) {
+      const r = isObj(v) ? rect(v.window) : undefined;
+      if (r && isObj(v)) s.layouts[k] = { window: r, pinned: v.pinned === true };
+    }
+  }
   return s;
+}
+
+function rect(w: unknown): Rect | undefined {
+  if (isObj(w) && isInt(w.x) && isInt(w.y) && isInt(w.width) && isInt(w.height) && w.width > 0 && w.height > 0)
+    return { x: w.x, y: w.y, width: w.width, height: w.height };
 }
 
 /** The top 30 px (the header, which is the drag handle) must sit inside one monitor's work area, at least 100 px wide, so the window can be dragged back. */

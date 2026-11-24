@@ -49,6 +49,9 @@ unsafe extern "system" {
     fn SetFocus(h: H) -> H;
     fn GetForegroundWindow() -> H;
     fn SetForegroundWindow(h: H) -> i32;
+    fn GetWindowThreadProcessId(h: H, pid: *mut u32) -> u32;
+    fn SetWinEventHook(min: u32, max: u32, m: H, f: unsafe extern "system" fn(H, u32, H, i32, i32, u32, u32), pid: u32, tid: u32, flags: u32) -> H;
+    fn GetMessageW(msg: *mut [u64; 6], h: H, min: u32, max: u32) -> i32;
 }
 
 #[link(name = "kernel32")]
@@ -104,11 +107,24 @@ unsafe fn attached(h: H, p: H) -> bool {
     p != 0 && IsWindow(p) != 0 && GetWindowLongPtrW(h, GWL_STYLE) & WS_CHILD != 0 && GetParent(h) == p
 }
 
-/// Explorer now and then swaps in a new wallpaper WorkerW right under the icons, over the pinned window (measured:
-/// DefView > new WorkerW > app). Under the icons (normal) or on top (raised for an edit) is fine.
+/// Explorer swaps in a new wallpaper WorkerW right under the icons, over the pinned window (measured: DefView > new
+/// WorkerW > app), whenever anything sets the wallpaper (measured: an ASUS OLED burn-in guard, every 200 s).
+/// Under the icons (normal) or on top (raised for an edit) is fine.
 unsafe fn buried(h: H, p: H) -> bool {
     let above = GetWindow(h, GW_HWNDPREV);
     above != 0 && above != icons(p)
+}
+
+/// Explorer's window events (create..location), on a thread of their own (start). The 1 s watcher left the window
+/// covered for up to a second, a visible blink; here a new WorkerW is put back under the window as it appears.
+unsafe extern "system" fn on_shell_event(_: H, _: u32, w: H, obj: i32, _: i32, _: u32, _: u32) {
+    let Ok(s) = ST.try_lock() else { return };
+    let (pinned, h, p) = (s.pinned, s.hwnd, s.parent);
+    drop(s);
+    // obj 0 = the window itself, not a caret or scroll bar in it
+    if obj == 0 && pinned && p != 0 && GetParent(w) == p && attached(h, p) && buried(h, p) {
+        SetWindowPos(h, icons(p), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
 }
 
 
@@ -396,6 +412,24 @@ unsafe extern "system" fn on_mouse(code: i32, w: usize, l: isize) -> isize {
 /// Call once from setup. The mouse hook comes with desktop_pin.
 pub fn start(app: AppHandle) {
     let _ = APP.set(app.clone());
+    // Not on the main thread: a child of Progman shares explorer's input queue, and events queued there waited out
+    // explorer's busy spell while it loaded the new wallpaper (measured: 200 ms late, the main thread itself idle).
+    // A thread without windows gets them at once; its SetWindowPos reaches the main thread as a sent message.
+    thread::spawn(|| unsafe {
+        let mut pid = 0;
+        while pid == 0 {
+            GetWindowThreadProcessId(FindWindowW(wide("Progman").as_ptr(), null()), &mut pid); // explorer, once it is up
+            if pid == 0 {
+                thread::sleep(Duration::from_secs(1));
+            }
+        }
+        // Explorer restarting means a new pid, but the watcher restarts the app then anyway.
+        if SetWinEventHook(0x8000, 0x800B, 0, on_shell_event, pid, 0, 0) == 0 {
+            return; // the watcher's 1 s re-insert still covers it
+        }
+        let mut msg = [0u64; 6];
+        while GetMessageW(&mut msg, 0, 0, 0) > 0 {}
+    });
     thread::spawn(move || loop {
         thread::sleep(Duration::from_secs(1));
         let (pinned, h, _, _, p) = snapshot();

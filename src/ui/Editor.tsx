@@ -7,7 +7,8 @@ import { DayEditor } from "./Calendar";
 import type { Draft } from "./dayList";
 import type { MemoBox } from "./memoBox";
 
-interface Job { day: string; at: number | "end"; tasks: Task[]; events: Event[]; box: MemoBox; lang: Lang; n: number }
+/** `dpr`: the calendar's pixel ratio. `box` is in its CSS pixels, and this window may still be on another monitor (other scale) when first shown. */
+interface Job { day: string; at: number | "end"; tasks: Task[]; events: Event[]; box: MemoBox; lang: Lang; dpr: number; n: number }
 
 /** The page of the memo window (editor.rs). The pinned calendar sits under the desktop icons and gets only replayed clicks;
  *  this is an ordinary window above them, so typing, caret, double and triple click selection are the real thing.
@@ -36,7 +37,7 @@ export function EditorApp() {
   const size = (cssHeight: number) => {
     if (cssHeight === lastH.current) return; // a keystroke that doesn't change the height needs no resize
     lastH.current = cssHeight;
-    const d = devicePixelRatio, b = job.box, w = Math.round(b.w * d), h = Math.round(cssHeight * d);
+    const d = job.dpr, b = job.box, w = Math.round(b.w * d), h = Math.round(cssHeight * d);
     if (shown.current) void invoke("editor_fit", { w, h });
     else {
       shown.current = true;
