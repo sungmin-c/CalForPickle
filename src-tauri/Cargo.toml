@@ -1,6 +1,6 @@
 [package]
 name = "calforpickle"
-version = "0.1.1"
+version = "0.1.2"
 description = "CalForPickle"
 authors = []
 edition = "2024"
