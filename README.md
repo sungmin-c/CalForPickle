@@ -7,6 +7,8 @@
   </sub>
 </p>
 
+<p align="center"><img src="docs/logo.png" width="128" alt="CalForPickle logo"></p>
+
 # CalForPickle
 
 [![Release](https://img.shields.io/github/v/release/sungmin-c/CalForPickle)](https://github.com/sungmin-c/CalForPickle/releases/latest)
