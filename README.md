@@ -7,7 +7,7 @@
   </sub>
 </p>
 
-<p align="center"><img src="docs/logo.png" width="128" alt="CalForPickle logo"></p>
+<p align="center"><img src="src-tauri/icons/icon.png" width="128" alt="CalForPickle logo"></p>
 
 # CalForPickle
 
